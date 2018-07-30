@@ -1,0 +1,12 @@
+/**
+ *  @file
+ *  @copyright defined in bes/LICENSE.txt
+ */
+
+#include <besio/chain/genesis_state.hpp>
+
+namespace besio { namespace chain {
+
+const string genesis_state::besio_root_key = "${BESIO_ROOT_KEY}";
+
+} } // namespace besio::chain
