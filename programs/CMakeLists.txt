@@ -1,7 +1,0 @@
-add_subdirectory( nodbes )
-add_subdirectory( clbes )
-add_subdirectory( kbesd )
-add_subdirectory( besio-launcher )
-add_subdirectory( besio-applesedemo )
-add_subdirectory( besio-abigen )
-add_subdirectory( genesis )
