@@ -1,0 +1,14 @@
+#include <stdint.h>
+#include <bes/utilities/git_revision.hpp>
+
+#define BES_GIT_REVISION_SHA "@BES_GIT_REVISION_SHA@"
+#define BES_GIT_REVISION_UNIX_TIMESTAMP @BES_GIT_REVISION_UNIX_TIMESTAMP@
+#define BES_GIT_REVISION_DESCRIPTION "@BES_GIT_REVISION_DESCRIPTION@"
+
+namespace besio { namespace utilities {
+
+const char* const git_revision_sha = BES_GIT_REVISION_SHA;
+const uint32_t git_revision_unix_timestamp = BES_GIT_REVISION_UNIX_TIMESTAMP;
+const char* const git_revision_description = BES_GIT_REVISION_DESCRIPTION;
+
+} } // end namespace besio::utilities
