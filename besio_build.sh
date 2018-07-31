@@ -30,7 +30,7 @@
 # https://github.com/biteosorg/BitEOS/master/LICENSE.txt
 ##########################################################################
 
-        CWD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+	CWD="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 	if [ "${CWD}" != "${PWD}" ]; then
 		printf "\\n\\tPlease cd into directory %s to run this script.\\n \\tExiting now.\\n\\n" "${CWD}"
 		exit 1
