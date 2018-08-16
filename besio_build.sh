@@ -278,14 +278,14 @@
 
    TIME_END=$(( $(date -u +%s) - ${TIME_BEGIN} ))
 
-   printf "\n\n${bldred}\t _______  _______  _______ _________ _______\n"
-   printf '\t(  ____ \(  ___  )(  ____ \\\\__   __/(  ___  )\n'
-   printf "\t| (    \/| (   ) || (    \/   ) (   | (   ) |\n"
-   printf "\t| (__    | |   | || (_____    | |   | |   | |\n"
-   printf "\t|  __)   | |   | |(_____  )   | |   | |   | |\n"
-   printf "\t| (      | |   | |      ) |   | |   | |   | |\n"
-   printf "\t| (____/\| (___) |/\____) |___) (___| (___) |\n"
-   printf "\t(_______/(_______)\_______)\_______/(_______)\n${txtrst}"
+   printf "\n\n${bldred}\t _______   _________ _________  _______   _______   _______ \n"         
+   printf "\t(  ____ \  \__   __/ \__   __/ (  ____ \ (  ___  ) (  ____ \\\\\n"         
+   printf "\t| (    ) |    ) (       ) (    | (    \/ | (   ) | | (    \/\n"         
+   printf "\t| (____)/     | |       | |    | (__     | |   | | | (_____ \n"         
+   printf "\t|  ___(       | |       | |    |  __)    | |   | | (_____  )\n"         
+   printf "\t| (    )\     | |       | |    | (       | |   | |       ) |\n"         
+   printf "\t| (____) | ___) (___    | |    | (____/\ | (___) | /\____) |\n"         
+   printf "\t(_______/  \_______/    |_|    (_______/ (_______) \_______)\n${txtrst}"
 
    printf "\\n\\tBESIO has been successfully built. %02d:%02d:%02d\\n\\n" $(($TIME_END/3600)) $(($TIME_END%3600/60)) $(($TIME_END%60))
    printf "\\tTo verify your installation run the following commands:\\n"
