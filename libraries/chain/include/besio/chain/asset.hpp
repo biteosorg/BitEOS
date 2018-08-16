@@ -3,6 +3,7 @@
  *  @copyright defined in bes/LICENSE.txt
  */
 #pragma once
+#include <besio/chain/exceptions.hpp>
 #include <besio/chain/types.hpp>
 #include <besio/chain/symbol.hpp>
 
@@ -12,17 +13,19 @@ namespace besio { namespace chain {
 
 asset includes amount and currency symbol
 
-asset::from_string takes a string of the form "10.0000 CUR" and constructs an asset
+asset::from_string takes a string of the form "10.0000 CUR" and constructs an asset 
 with amount = 10 and symbol(4,"CUR")
 
 */
 
-#define BES_SYMBOL symbol(4, "BES")
 struct asset
 {
    static constexpr int64_t max_amount = (1LL << 62) - 1;
 
-   explicit asset(share_type a = 0, symbol id = BES_SYMBOL);
+   explicit asset(share_type a = 0, symbol id = symbol(CORE_SYMBOL)) :amount(a), sym(id) {
+      BES_ASSERT( is_amount_within_range(), asset_type_exception, "magnitude of asset amount must be less than 2^62" );
+      BES_ASSERT( sym.valid(), asset_type_exception, "invalid symbol" );
+   }
 
    bool is_amount_within_range()const { return -max_amount <= amount && amount <= max_amount; }
    bool is_valid()const               { return is_amount_within_range() && sym.valid(); }
@@ -40,14 +43,14 @@ struct asset
 
    asset& operator += (const asset& o)
    {
-      FC_ASSERT(get_symbol() == o.get_symbol());
+      BES_ASSERT(get_symbol() == o.get_symbol(), asset_type_exception, "addition between two different asset is not allowed");
       amount += o.amount;
       return *this;
    }
 
    asset& operator -= (const asset& o)
    {
-      FC_ASSERT(get_symbol() == o.get_symbol());
+      BES_ASSERT(get_symbol() == o.get_symbol(), asset_type_exception, "subtraction between two different asset is not allowed");
       amount -= o.amount;
       return *this;
    }
@@ -59,7 +62,7 @@ struct asset
    }
    friend bool operator < (const asset& a, const asset& b)
    {
-      FC_ASSERT(a.get_symbol() == b.get_symbol());
+      BES_ASSERT(a.get_symbol() == b.get_symbol(), asset_type_exception, "logical operation between two different asset is not allowed");
       return std::tie(a.amount,a.get_symbol()) < std::tie(b.amount,b.get_symbol());
    }
    friend bool operator <= (const asset& a, const asset& b) { return (a == b) || (a < b); }
@@ -68,12 +71,12 @@ struct asset
    friend bool operator >= (const asset& a, const asset& b) { return !(a < b);  }
 
    friend asset operator - (const asset& a, const asset& b) {
-      FC_ASSERT(a.get_symbol() == b.get_symbol());
+      BES_ASSERT(a.get_symbol() == b.get_symbol(), asset_type_exception, "subtraction between two different asset is not allowed");
       return asset(a.amount - b.amount, a.get_symbol());
    }
 
    friend asset operator + (const asset& a, const asset& b) {
-      FC_ASSERT(a.get_symbol() == b.get_symbol());
+      BES_ASSERT(a.get_symbol() == b.get_symbol(), asset_type_exception, "addition between two different asset is not allowed");
       return asset(a.amount + b.amount, a.get_symbol());
    }
 
@@ -81,7 +84,10 @@ struct asset
 
    friend struct fc::reflector<asset>;
 
-   void reflector_verify()const;
+   void reflector_verify()const {
+      BES_ASSERT( is_amount_within_range(), asset_type_exception, "magnitude of asset amount must be less than 2^62" );
+      BES_ASSERT( sym.valid(), asset_type_exception, "invalid symbol" );
+   }
 
 private:
    share_type amount;

@@ -15,6 +15,8 @@ target_link_libraries( kbesd
         PRIVATE http_plugin
         PRIVATE besio_chain fc ${CMAKE_DL_LIBS} ${PLATFORM_SPECIFIC_LIBS} )
 
+mas_sign(kbesd)
+
 install( TARGETS
    kbesd
 

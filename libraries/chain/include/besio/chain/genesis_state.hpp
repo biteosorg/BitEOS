@@ -7,7 +7,6 @@
 
 #include <besio/chain/chain_config.hpp>
 #include <besio/chain/types.hpp>
-#include <besio/chain/asset.hpp>
 
 #include <fc/crypto/sha256.hpp>
 
@@ -15,19 +14,6 @@
 #include <vector>
 
 namespace besio { namespace chain {
-
-struct account_tuple {
-    public_key_type key;
-    asset           asset;
-    account_name    name = N(a);
-};
-
-struct producer_tuple {
-    account_name name;
-    public_key_type bpkey;
-    uint32_t commission_rate;
-    std::string url;
-};
 
 struct genesis_state {
    genesis_state();
@@ -58,10 +44,6 @@ struct genesis_state {
 
    time_point                               initial_timestamp;
    public_key_type                          initial_key;
-   bytes                                    code;
-   bytes                                    abi;
-   bytes                                    token_code;
-   bytes                                    token_abi;
 
    /**
     * Get the chain_id corresponding to this genesis state.
@@ -69,15 +51,10 @@ struct genesis_state {
     * This is the SHA256 serialization of the genesis_state.
     */
    chain_id_type compute_chain_id() const;
-   std::vector<account_tuple>                                 initial_account_list;
-   std::vector<producer_tuple>                                initial_producer_list;
 };
 
 } } // namespace besio::chain
 
 
-FC_REFLECT(besio::chain::account_tuple, (key)(asset)(name))
-FC_REFLECT(besio::chain::producer_tuple, (name)(bpkey)(commission_rate)(url))
 FC_REFLECT(besio::chain::genesis_state,
-           (initial_timestamp)(initial_key)(code)(abi)(token_code)(token_abi)
-           (initial_configuration)(initial_account_list)(initial_producer_list))
+           (initial_timestamp)(initial_key)(initial_configuration))

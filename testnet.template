@@ -56,23 +56,58 @@ wcmd () {
 }
 
 cacmd () {
-    ecmd create account besio $*
+    programs/clbes/clbes  --wallet-url $wdurl --url http://$bioshost:$biosport system newaccount --transfer --stake-net "10000000.0000 SYS" --stake-cpu "10000000.0000 SYS"  --buy-ram "10000000.0000 SYS" besio $* >> $logfile 2>&1
+    ecmd system regproducer $1 $2
+    ecmd system voteproducer prods $1 $1
 }
 
 sleep 2
 ecmd get info
 
-
 wcmd create -n ignition
-# Manual deployers, add a line below this block that looks like:
-#    wcmd import -n ignition $PRODKEY[0]
-#    wcmd import -n ignition $PRODKEY[1]
-#    ...
-#    wcmd import -n ignition $PRODKEY[20]
 
+# Manual deployers, add a line below this block that looks like:
+#    wcmd import -n ignition --private-key $PRODKEY[0]
+#    wcmd import -n ignition --private-key $PRODKEY[1]
+#    ...
+#    wcmd import -n ignition --private-key $PRODKEY[20]
 # where $BIOSKEY is replaced by the private key for the bios node
 # ------ DO NOT ALTER THE NEXT LINE -------
 ###INSERT prodkeys
+
+ecmd set contract besio contracts/besio.bios contracts/besio.bios/besio.bios.wast contracts/besio.bios/besio.bios.abi
+
+# Create required system accounts
+ecmd create key
+pubsyskey=`grep "^Public key:" $logfile | tail -1 | sed "s/^Public key://"`
+prisyskey=`grep "^Private key:" $logfile | tail -1 | sed "s/^Private key://"`
+echo besio.* keys: $prisyskey $pubsyskey >> $logfile
+wcmd import -n ignition --private-key $prisyskey
+ecmd create account besio besio.bpay $pubsyskey $pubsyskey
+ecmd create account besio besio.msig $pubsyskey $pubsyskey
+ecmd create account besio besio.names $pubsyskey $pubsyskey
+ecmd create account besio besio.ram $pubsyskey $pubsyskey
+ecmd create account besio besio.ramfee $pubsyskey $pubsyskey
+ecmd create account besio besio.saving $pubsyskey $pubsyskey
+ecmd create account besio besio.stake $pubsyskey $pubsyskey
+ecmd create account besio besio.token $pubsyskey $pubsyskey
+ecmd create account besio besio.vpay $pubsyskey $pubsyskey
+ecmd create account besio besio.sudo $pubsyskey $pubsyskey
+
+ecmd set contract besio.token contracts/besio.token contracts/besio.token/besio.token.wast contracts/besio.token/besio.token.abi
+ecmd set contract besio.msig contracts/besio.msig contracts/besio.msig/besio.msig.wast contracts/besio.msig/besio.msig.abi
+ecmd set contract besio.sudo contracts/besio.sudo contracts/besio.sudo/besio.sudo.wast contracts/besio.sudo/besio.sudo.abi
+
+echo ===== Start: $step ============ >> $logfile
+echo executing: clbes --wallet-url $wdurl --url http://$bioshost:$biosport push action besio.token create '[ "besio", "10000000000.0000 SYS" ]' -p besio.token | tee -a $logfile
+echo executing: clbes --wallet-url $wdurl --url http://$bioshost:$biosport push action besio.token issue '[ "besio", "1000000000.0000 SYS", "memo" ]' -p besio | tee -a $logfile
+echo ----------------------- >> $logfile
+programs/clbes/clbes --wallet-url $wdurl --url http://$bioshost:$biosport push action besio.token create '[ "besio", "10000000000.0000 SYS" ]' -p besio.token >> $logfile 2>&1
+programs/clbes/clbes --wallet-url $wdurl --url http://$bioshost:$biosport push action besio.token issue '[ "besio", "1000000000.0000 SYS", "memo" ]' -p besio >> $logfile 2>&1
+echo ==== End: $step ============== >> $logfile
+step=$(($step + 1))
+
+ecmd set contract besio contracts/besio.system contracts/besio.system/besio.system.wast contracts/besio.system/besio.system.abi
 
 # Manual deployers, add a series of lines below this block that looks like:
 #    cacmd $PRODNAME[0] $OWNERKEY[0] $ACTIVEKEY[0]
@@ -83,27 +118,5 @@ wcmd create -n ignition
 # public key
 # ------ DO NOT ALTER THE NEXT LINE -------
 ###INSERT cacmd
-
-
-ecmd set contract besio contracts/besio.bios contracts/besio.bios/besio.bios.wast contracts/besio.bios/besio.bios.abi
-
-#the setprods.json argument cannot pass through the function call due to embedded quotes
-echo ===== Start: $step ============ >> $logfile
-echo executing: clbes  --wallet-url $wdurl --url http://$bioshost:$biosport push action besio setprods setprods.json -p besio@active | tee -a $logfile
-echo ----------------------- >> $logfile
-programs/clbes/clbes  --wallet-url $wdurl --url http://$bioshost:$biosport push action besio setprods setprods.json -p besio@active >> $logfile 2>&1
-echo ==== End: $step ============== >> $logfile
-step=$(($step + 1))
-
-ecmd set contract besio contracts/besio.system contracts/besio.system/besio.system.wast contracts/besio.system/besio.system.abi
-
-echo ===== Start: $step ============ >> $logfile
-echo executing: clbes  --wallet-url $wdurl --url http://$bioshost:$biosport push action besio issue '{"to":"besio","quantity":"1000000000.0000 BES","memo":"init"}' -p besio@active | tee -a $logfile
-echo ----------------------- >> $logfile
-programs/clbes/clbes  --wallet-url $wdurl --url http://$bioshost:$biosport push action besio issue '{"to":"besio","quantity":"1000000000.0000 BES","memo":"init"}' -p besio@active >> $logfile 2>&1
-echo ==== End: $step ============== >> $logfile
-step=$(($step + 1))
-
-for a in {a..u}; do ecmd transfer besio init$a 1000000.0000 "\"fund_producer_init$a\""; done
 
 pkill -15 kbesd

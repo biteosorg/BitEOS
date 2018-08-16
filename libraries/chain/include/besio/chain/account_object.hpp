@@ -23,7 +23,6 @@ namespace besio { namespace chain {
 
       time_point           last_code_update;
       digest_type          code_version;
-      digest_type          abi_version;
       block_timestamp_type creation_date;
 
       shared_string  code;
@@ -37,7 +36,7 @@ namespace besio { namespace chain {
 
       besio::chain::abi_def get_abi()const {
          besio::chain::abi_def a;
-         FC_ASSERT( abi.size() != 0, "No ABI set on account ${n}", ("n",name) );
+         BES_ASSERT( abi.size() != 0, abi_not_found_exception, "No ABI set on account ${n}", ("n",name) );
 
          fc::datastream<const char*> ds( abi.data(), abi.size() );
          fc::raw::unpack( ds, a );

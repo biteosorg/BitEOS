@@ -45,7 +45,7 @@ Execute a proposal
 Clbes usage example.
 
 Prerequisites:
-   - besio.token contract installed to besio.token accountm, besio.msig contract installed on besio.msig account which is a priviliged account.
+   - besio.token contract installed to besio.token account, besio.msig contract installed on besio.msig account which is a privileged account.
    - account 'treasury' is the issuer of BES token.
    - account 'tester' exists.
    - keys to accounts 'treasury' and 'tester' imported into local wallet, the wallet is unlocked.

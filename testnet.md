@@ -1,5 +1,5 @@
 # BES Testnet
-To date, all work done to experiment with the BES blockchain has been performed using a single instance of besd hosting all 53 block producers. While this is a perfectly valid solution for validating features of the blockchain, developing new contracts, or whatever, it does not scale. Nor does it expose the sort of issues raised when contract and block data must be shared across multiple instances. Providing the ability to scale involves deploying multiple besd nodes across many hosts and lining then into a peer-to-peer (p2p) network. Composing this network involves tailoring and distributing configuration files, coordinating starts and stops and other tasks.
+To date, all work done to experiment with the BES blockchain has been performed using a single instance of besd hosting all 21 block producers. While this is a perfectly valid solution for validating features of the blockchain, developing new contracts, or whatever, it does not scale. Nor does it expose the sort of issues raised when contract and block data must be shared across multiple instances. Providing the ability to scale involves deploying multiple besd nodes across many hosts and lining then into a peer-to-peer (p2p) network. Composing this network involves tailoring and distributing configuration files, coordinating starts and stops and other tasks.
 
 Doing this manually is a tedious task and easily error prone. Fortunately a solution is provided, in the form of the Launcher application, described below.
 
@@ -32,11 +32,11 @@ Network topology or "shape" describes how the nodes are connected in order to sh
 The Launcher has definitions of two basic different network "shapes" based on inter-nodal connections, which can be selected by a command line option. If you wish to create your own custom network topology, you can do so by supplying a json formatted file. This file is typically the edited version of the template created by the launcher in "output" mode.
 
 #### Star network
-![](https://github.com/biteosorg/BitEOS/raw/master/star.png)
+![](https://github.com/bitbesorg/BitBES/images/star.png)
 A "star" is intended to support a larger number of nodes in the testnet. In this case the number of peers connected to a node and the distribution of those nodes varies based on the number of nodes in the network.
 
 #### Mesh network
-![](https://github.com/biteosorg/BitEOS/raw/master/mesh.png)
+![](https://github.com/bitbesorg/BitBES/images/mesh.png)
 In a "mesh" network, each node is connected to as many peer nodes as possible.
 
 #### Custom network shape

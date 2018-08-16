@@ -20,9 +20,9 @@ Deleting the `transactions.txt` file will prevent replay from working.
 
 `clbes create key`
 
-`clbes wallet import <private key from step 1>`
+`clbes wallet import  --private-key <private key from step 1>`
 
-`clbes wallet import <private key from step 2>`
+`clbes wallet import  --private-key <private key from step 2>`
 
 `clbes create account besio <account_name> <public key from step 1> <public key from step 2>`
 

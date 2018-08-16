@@ -3,21 +3,10 @@
  *  @copyright defined in bes/LICENSE.txt
  */
 #include <besio/chain/asset.hpp>
-#include <besio/chain/exceptions.hpp>
 #include <boost/rational.hpp>
 #include <fc/reflect/variant.hpp>
 
 namespace besio { namespace chain {
-
-void asset::reflector_verify()const {
-  BES_ASSERT( is_amount_within_range(), asset_type_exception, "magnitude of asset amount must be less than 2^62" );
-  BES_ASSERT( sym.valid(), asset_type_exception, "invalid symbol" );
-}
-
-asset::asset(share_type a, symbol id) :amount(a), sym(id) {
-   BES_ASSERT( is_amount_within_range(), asset_type_exception, "magnitude of asset amount must be less than 2^62" );
-   BES_ASSERT( sym.valid(), asset_type_exception, "invalid symbol" );
-}
 
 uint8_t asset::decimals()const {
    return sym.decimals();

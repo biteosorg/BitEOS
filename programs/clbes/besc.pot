@@ -4,7 +4,7 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: BESIO 1.0\n"
-"Report-Msgid-Bugs-To: https://github.com/biteosorg/BitEOS/issues"
+"Report-Msgid-Bugs-To: https://github.com/bitbesorg/BitBES/issues"
 "POT-Creation-Date: 2017-09-28 11:40-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
@@ -103,7 +103,7 @@ msgstr ""
 msgid "force the transaction to be unique. this will consume extra bandwidth and remove any protections against accidently issuing the same transaction multiple times"
 msgstr ""
 
-msgid "set parmaters dealing with account permissions"
+msgid "set parameters dealing with account permissions"
 msgstr ""
 
 msgid "The account to set/delete a permission authority for"

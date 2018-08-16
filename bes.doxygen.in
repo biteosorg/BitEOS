@@ -4,8 +4,8 @@
 # Project related configuration options
 #---------------------------------------------------------------------------
 DOXYFILE_ENCODING      = UTF-8
-PROJECT_NAME           = "BitEOS"
-PROJECT_NUMBER         = "BitEOS ${DOXY_BES_VERSION}"
+PROJECT_NAME           = "BES.IO"
+PROJECT_NUMBER         = "BESIO ${DOXY_BES_VERSION}"
 PROJECT_BRIEF          =
 PROJECT_LOGO           = bes-logo.png
 OUTPUT_DIRECTORY       =

@@ -1,8 +1,15 @@
 cmake_minimum_required( VERSION 3.5 )
 
-project( BitEOS )
+project( BESIO )
 
 enable_testing()
+
+if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+   message(WARNING "CMAKE_INSTALL_PREFIX is set to default path of ${CMAKE_INSTALL_PREFIX}, resetting to ${CMAKE_INSTALL_PREFIX}/besio")
+   set(CMAKE_INSTALL_PREFIX "${CMAKE_INSTALL_PREFIX}/besio")
+elseif ("${CMAKE_INSTALL_PREFIX}" STREQUAL "/usr/local")
+   message(WARNING "CMAKE_INSTALL_PREFIX is explicitly set to /usr/local. This is not recommended.")
+endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/libraries/fc/CMakeModules")
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules")
@@ -11,15 +18,16 @@ include( GNUInstallDirs )
 include( VersionMacros )
 include( SetupTargetMacros )
 include( InstallDirectoryPermissions )
+include( MASSigning )
 
-set( BLOCKCHAIN_NAME "BitEOS" )
+set( BLOCKCHAIN_NAME "BESIO" )
 set( CMAKE_CXX_STANDARD 14 )
 set( CMAKE_CXX_EXTENSIONS ON )
 set( CXX_STANDARD_REQUIRED ON)
 
 set(VERSION_MAJOR 1)
-set(VERSION_MINOR 0)
-set(VERSION_PATCH 0)
+set(VERSION_MINOR 1)
+set(VERSION_PATCH 4)
 
 set( CLI_CLIENT_EXECUTABLE_NAME clbes )
 set( GUI_CLIENT_EXECUTABLE_NAME besio )
@@ -63,6 +71,8 @@ if ("${OPENSSL_ROOT_DIR}" STREQUAL "")
       message(FATAL_ERROR "openssl not found and don't know where to look, please specify OPENSSL_ROOT_DIR")
    endif()
 endif()
+
+find_package(Secp256k1 REQUIRED)
 
 if(UNIX)
   if(APPLE)
@@ -214,6 +224,13 @@ install(FILES testnet.template DESTINATION ${CMAKE_INSTALL_FULL_SYSCONFDIR}/besi
 install_directory_permissions(DIRECTORY ${CMAKE_INSTALL_FULL_SYSCONFDIR}/besio)
 install_directory_permissions(DIRECTORY ${CMAKE_INSTALL_FULL_SYSCONFDIR}/besio/launcher)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/testnet.template ${CMAKE_CURRENT_BINARY_DIR}/etc/besio/launcher/testnet.template COPYONLY)
+
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/besio.version.in ${CMAKE_CURRENT_BINARY_DIR}/besio.version.hpp)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/besio.version.hpp DESTINATION ${CMAKE_INSTALL_FULL_INCLUDEDIR})
+
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/BesioTester.cmake.in ${CMAKE_CURRENT_BINARY_DIR}/BesioTester.cmake @ONLY)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/CMakeModules/BesioTesterBuild.cmake.in ${CMAKE_BINARY_DIR}/lib/cmake/BesioTester.cmake @ONLY)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/BesioTester.cmake DESTINATION ${CMAKE_INSTALL_FULL_LIBDIR}/cmake/)
 
 include(installer)
 

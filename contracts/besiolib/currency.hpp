@@ -9,7 +9,7 @@ namespace besio {
 
    /**
     *  This contract enables the creation, issuance, and transfering of many different tokens.
-    *
+    *  @deprecated This class is deprecated in favor of besio.token in Dawn 3.0
     */
    class currency {
       public:

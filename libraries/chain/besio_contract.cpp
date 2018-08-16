@@ -10,7 +10,6 @@
 #include <besio/chain/apply_context.hpp>
 #include <besio/chain/transaction.hpp>
 #include <besio/chain/exceptions.hpp>
-#include <besio/chain/memory_db.hpp>
 
 #include <besio/chain/account_object.hpp>
 #include <besio/chain/permission_object.hpp>
@@ -24,7 +23,6 @@
 
 #include <besio/chain/authorization_manager.hpp>
 #include <besio/chain/resource_limits.hpp>
-// #include <besio/chain/contract_table_objects.hpp>
 
 namespace besio { namespace chain {
 
@@ -58,18 +56,13 @@ void validate_authority_precondition( const apply_context& context, const author
                   );
       }
    }
-}
 
-
-  void accounts_table(account_name name, chainbase::database& cdb) {
-      memory_db::account_info obj;
-      obj.name = name;
-      obj.available = asset(0);
-      bytes data = fc::raw::pack(obj);
-      auto pk = obj.primary_key();
-      memory_db db(cdb);
-      db.db_store_i64(N(besio), N(besio), N(accounts), name, pk, data.data(), data.size() );
+   if( context.control.is_producing_block() ) {
+      for( const auto& p : auth.keys ) {
+         context.control.check_key_list( p.key );
+      }
    }
+}
 
 /**
  *  This method is called assuming precondition_system_newaccount succeeds a
@@ -93,14 +86,13 @@ void apply_besio_newaccount(apply_context& context) {
 
    // Check if the creator is privileged
    const auto &creator = db.get<account_object, by_name>(create.creator);
-   BES_ASSERT(!creator.privileged, action_validate_exception, "not support privileged accounts");
-   /*if( !creator.privileged ) {
+   if( !creator.privileged ) {
       BES_ASSERT( name_str.find( "besio." ) != 0, action_validate_exception,
                   "only privileged accounts can have names that start with 'besio.'" );
-   }*/
+   }
 
    auto existing_account = db.find<account_object, by_name>(create.name);
-   BES_ASSERT(existing_account == nullptr, action_validate_exception,
+   BES_ASSERT(existing_account == nullptr, account_name_exists_exception,
               "Cannot create account named ${name}, as that name is already taken",
               ("name", create.name));
 
@@ -112,7 +104,6 @@ void apply_besio_newaccount(apply_context& context) {
    db.create<account_sequence_object>([&](auto& a) {
       a.name = create.name;
    });
-   accounts_table(create.name, db);
 
    for( const auto& auth : { create.owner, create.active } ){
       validate_authority_precondition( context, auth );
@@ -134,84 +125,21 @@ void apply_besio_newaccount(apply_context& context) {
 
 } FC_CAPTURE_AND_RETHROW( (create) ) }
 
-static void copy_inline_row(const chain::key_value_object& obj, vector<char>& data) {
-  data.resize( obj.value.size() );
-  memcpy( data.data(), obj.value.data(), obj.value.size() );
-}
-
-// config::system_account_name
-
-bool allow_setcode(apply_context& context, std::string code_id) {
-  const auto& code_account = context.db.get<account_object,by_name>(N(besio));
-  chain::abi_def abi;
-  if(abi_serializer::to_abi(code_account.abi, abi)) {
-    abi_serializer abis(abi);
-    const auto* t_id = context.db.find<chain::table_id_object, chain::by_code_scope_table>(boost::make_tuple(config::system_account_name, config::system_account_name, N(contractstat)));
-    if (t_id != nullptr) {
-      const auto &idx = context.db.get_index<key_value_index, by_scope_primary>();
-      auto it = idx.lower_bound(boost::make_tuple(t_id->id, config::system_account_name));
-      if (it != idx.end()) {
-        vector<char> data;
-        copy_inline_row(*it, data);
-        auto ct = abis.binary_to_variant("contractstat_info", data);
-        auto& obj = ct.get_object();
-        auto code_obj = obj["code"].get_object();
-        auto cid = code_obj["code_id"].as_string();
-        if (cid == code_id) {
-          return true;
-        } else {
-          return false;
-        }
-      }
-    }
-  }
-  return false;
-}
-
-bool allow_setabi(apply_context& context, std::string abi_id) {
-  const auto& code_account = context.db.get<account_object,by_name>(N(besio));
-  chain::abi_def abi;
-  if(abi_serializer::to_abi(code_account.abi, abi)) {
-    abi_serializer abis(abi);
-    const auto* t_id = context.db.find<chain::table_id_object, chain::by_code_scope_table>(boost::make_tuple(config::system_account_name, config::system_account_name, N(contractstat)));
-    if (t_id != nullptr) {
-      const auto &idx = context.db.get_index<key_value_index, by_scope_primary>();
-      auto it = idx.lower_bound(boost::make_tuple(t_id->id, config::system_account_name));
-      if (it != idx.end()) {
-        vector<char> data;
-        copy_inline_row(*it, data);
-        auto ct = abis.binary_to_variant("contractstat_info", data);
-        auto& obj = ct.get_object();
-        auto code_obj = obj["code"].get_object();
-        auto aid = code_obj["abi_id"].as_string();
-        if (aid == abi_id) {
-          return true;
-        } else {
-          return false;
-        }
-      }
-    }
-  }
-  return false;
-}
-
 void apply_besio_setcode(apply_context& context) {
    const auto& cfg = context.control.get_global_properties().configuration;
 
    auto& db = context.db;
-
    auto  act = context.act.data_as<setcode>();
-   context.setcode_require_authorization(act.account);
-//   context.require_write_lock( config::besio_auth_scope );
+   context.require_authorization(act.account);
 
-   FC_ASSERT( act.vmtype == 0 );
-   FC_ASSERT( act.vmversion == 0 );
+   BES_ASSERT( act.vmtype == 0, invalid_contract_vm_type, "code should be 0" );
+   BES_ASSERT( act.vmversion == 0, invalid_contract_vm_version, "version should be 0" );
 
    fc::sha256 code_id; /// default ID == 0
 
    if( act.code.size() > 0 ) {
      code_id = fc::sha256::hash( act.code.data(), (uint32_t)act.code.size() );
-     wasm_interface::validate(act.code);
+     wasm_interface::validate(context.control, act.code);
    }
 
    const auto& account = db.get<account_object,by_name>(act.account);
@@ -220,23 +148,7 @@ void apply_besio_setcode(apply_context& context) {
    int64_t old_size  = (int64_t)account.code.size() * config::setcode_ram_bytes_multiplier;
    int64_t new_size  = code_size * config::setcode_ram_bytes_multiplier;
 
-   // Only allow besio contract to setcode
-   if (act.account != besio::chain::name{N(besio)}) {
-     // exit
-     FC_THROW("only allow besio to setcode");
-   }
-
-   // Not first time setcode
-   if (account.code_version != fc::sha256::sha256()) {
-     // get allow_setcode from system contract table
-     if (!allow_setcode(context, code_id.str())) {
-       // exit
-       FC_THROW("The code_id '${code_id}' is not approved by the system contract", ("code_id", code_id));
-     }
-     // FC_THROW("setcode twice is not allowed");
-   }
-
-   FC_ASSERT( account.code_version != code_id, "contract is already running this version of code" );
+   BES_ASSERT( account.code_version != code_id, set_exact_code, "contract is already running this version of code" );
 
    db.modify( account, [&]( auto& a ) {
       /** TODO: consider whether a microsecond level local timestamp is sufficient to detect code version changes*/
@@ -263,15 +175,7 @@ void apply_besio_setabi(apply_context& context) {
    auto& db  = context.db;
    auto  act = context.act.data_as<setabi>();
 
-   context.setcode_require_authorization(act.account);
-
-   // Only allow besio contract.
-   if (act.account != besio::chain::name{N(besio)}) {
-     // exit
-     FC_THROW("only allow besio to setabi");
-   }
-
-   auto abi_id = fc::sha256::hash(act.abi.data(), (uint32_t)act.abi.size());
+   context.require_authorization(act.account);
 
    const auto& account = db.get<account_object,by_name>(act.account);
 
@@ -280,20 +184,7 @@ void apply_besio_setabi(apply_context& context) {
    int64_t old_size = (int64_t)account.abi.size();
    int64_t new_size = abi_size;
 
-   // Not first time setabi
-   if (account.abi_version != fc::sha256::sha256()) {
-      // get allow_setabi from system contract table
-      if (!allow_setabi(context, abi_id.str())) {
-        // exit
-        FC_THROW("The abi_id '${abi_id}' is not approved by the system contract", ("abi_id", abi_id));
-      }
-      // FC_THROW("setabi twice is not allowed");
-   }
-
-   FC_ASSERT(account.abi_version != abi_id, "contract is already running this version of abi");
-
    db.modify( account, [&]( auto& a ) {
-      a.abi_version = abi_id;
       a.abi.resize( abi_size );
       if( abi_size > 0 )
          memcpy( a.abi.data(), act.abi.data(), abi_size );
@@ -391,7 +282,8 @@ void apply_besio_deleteauth(apply_context& context) {
       const auto& index = db.get_index<permission_link_index, by_permission_name>();
       auto range = index.equal_range(boost::make_tuple(remove.account, remove.permission));
       BES_ASSERT(range.first == range.second, action_validate_exception,
-                 "Cannot delete a linked authority. Unlink the authority first");
+                 "Cannot delete a linked authority. Unlink the authority first. This authority is linked to ${code}::${type}.", 
+                 ("code", string(range.first->code))("type", string(range.first->message_type)));
    }
 
    const auto& permission = authorization.get_permission({remove.account, remove.permission});

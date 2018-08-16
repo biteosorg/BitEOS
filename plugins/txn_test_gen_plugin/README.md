@@ -2,6 +2,8 @@
 
 This plugin provides a way to generate a given amount of transactions per second against the currency contract. It runs internally to besd to reduce overhead.
 
+This general procedure was used when doing Dawn 3.0 performance testing as mentioned in https://github.com/bitbesorg/BitBES/issues/2078.
+
 ## Performance testing
 
 The following instructions describe how to use the `txn_test_gen_plugin` plugin to generate 1,000 transaction per second load on a simple BESIO node.

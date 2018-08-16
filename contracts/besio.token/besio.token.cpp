@@ -3,19 +3,19 @@
  *  @copyright defined in bes/LICENSE.txt
  */
 
-#include <besio.token/besio.token.hpp>
+#include "besio.token.hpp"
 
 namespace besio {
 
 void token::create( account_name issuer,
                     asset        maximum_supply )
 {
+    require_auth( _self );
+
     auto sym = maximum_supply.symbol;
     besio_assert( sym.is_valid(), "invalid symbol name" );
     besio_assert( maximum_supply.is_valid(), "invalid supply");
     besio_assert( maximum_supply.amount > 0, "max-supply must be positive");
-    besio::symbol_type bes = S(4,BES);
-    besio_assert( sym.name() != bes.name(), "not create BES");
 
     stats statstable( _self, sym.name() );
     auto existing = statstable.find( sym.name() );

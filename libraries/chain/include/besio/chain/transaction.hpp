@@ -5,11 +5,10 @@
 #pragma once
 
 #include <besio/chain/action.hpp>
-#include <besio/chain/asset.hpp>
-
 #include <numeric>
 
 namespace besio { namespace chain {
+
    /**
     *  The transaction header contains the fixed-sized data
     *  associated with each transaction. It is separated from
@@ -56,14 +55,14 @@ namespace besio { namespace chain {
       vector<action>         context_free_actions;
       vector<action>         actions;
       extensions_type        transaction_extensions;
-      asset                  fee;
 
       transaction_id_type        id()const;
       digest_type                sig_digest( const chain_id_type& chain_id, const vector<bytes>& cfd = vector<bytes>() )const;
       flat_set<public_key_type>  get_signature_keys( const vector<signature_type>& signatures,
                                                      const chain_id_type& chain_id,
                                                      const vector<bytes>& cfd = vector<bytes>(),
-                                                     bool allow_duplicate_keys = false )const;
+                                                     bool allow_duplicate_keys = false,
+                                                     bool use_cache = true )const;
 
       uint32_t total_actions()const { return context_free_actions.size() + actions.size(); }
       account_name first_authorizor()const {
@@ -93,7 +92,7 @@ namespace besio { namespace chain {
 
       const signature_type&     sign(const private_key_type& key, const chain_id_type& chain_id);
       signature_type            sign(const private_key_type& key, const chain_id_type& chain_id)const;
-      flat_set<public_key_type> get_signature_keys( const chain_id_type& chain_id, bool allow_duplicate_keys = false )const;
+      flat_set<public_key_type> get_signature_keys( const chain_id_type& chain_id, bool allow_duplicate_keys = false, bool use_cache = true )const;
    };
 
    struct packed_transaction {
@@ -190,7 +189,7 @@ namespace besio { namespace chain {
 
 FC_REFLECT( besio::chain::transaction_header, (expiration)(ref_block_num)(ref_block_prefix)
                                               (max_net_usage_words)(max_cpu_usage_ms)(delay_sec) )
-FC_REFLECT_DERIVED( besio::chain::transaction, (besio::chain::transaction_header), (context_free_actions)(actions)(transaction_extensions)(fee) )
+FC_REFLECT_DERIVED( besio::chain::transaction, (besio::chain::transaction_header), (context_free_actions)(actions)(transaction_extensions) )
 FC_REFLECT_DERIVED( besio::chain::signed_transaction, (besio::chain::transaction), (signatures)(context_free_data) )
 FC_REFLECT_ENUM( besio::chain::packed_transaction::compression_type, (none)(zlib))
 FC_REFLECT( besio::chain::packed_transaction, (signatures)(compression)(packed_context_free_data)(packed_trx) )

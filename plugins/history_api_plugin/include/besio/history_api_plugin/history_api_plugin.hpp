@@ -4,7 +4,7 @@
  */
 
 #pragma once
-#include <besio/history_plugin.hpp>
+#include <besio/history_plugin/history_plugin.hpp>
 #include <besio/chain_plugin/chain_plugin.hpp>
 #include <besio/http_plugin/http_plugin.hpp>
 

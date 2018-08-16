@@ -10,7 +10,7 @@ RUN git clone -b $branch https://github.com/bitbesorg/BitBES.git --recursive \
     && mv /bes/Docker/config.ini / && mv /opt/besio/contracts /contracts && mv /bes/Docker/nodbesd.sh /opt/besio/bin/nodbesd.sh && mv tutorials /tutorials \
     && rm -rf /bes
 
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install openssl vim psmisc python3-pip && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install openssl ca-certificates vim psmisc python3-pip && rm -rf /var/lib/apt/lists/*
 RUN pip3 install numpy
 ENV BESIO_ROOT=/opt/besio
 RUN chmod +x /opt/besio/bin/nodbesd.sh

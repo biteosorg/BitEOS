@@ -10,4 +10,4 @@ $ cd tutorials/bios-boot-tutorial
 $ ./bios-boot-tutorial.py
 ```
 
-See [BESIO Documentation Wiki: Tutorial - Bios Boot](https://github.com/biteosorg/BitEOS/wiki/Tutorial-Bios-Boot-Sequence) for additional information.
+See [BESIO Documentation Wiki: Tutorial - Bios Boot](https://github.com/bitbesorg/BitBES/wiki/Tutorial-Bios-Boot-Sequence) for additional information.

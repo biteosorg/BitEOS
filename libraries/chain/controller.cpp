@@ -5,7 +5,6 @@
 #include <besio/chain/fork_database.hpp>
 
 #include <besio/chain/account_object.hpp>
-#include <besio/chain/memory_db.hpp>
 #include <besio/chain/block_summary_object.hpp>
 #include <besio/chain/global_property_object.hpp>
 #include <besio/chain/contract_table_objects.hpp>
@@ -14,9 +13,7 @@
 #include <besio/chain/reversible_block_object.hpp>
 
 #include <besio/chain/authorization_manager.hpp>
-#include <besio/chain/txfee_manager.hpp>
 #include <besio/chain/resource_limits.hpp>
-#include <besio/chain/config.hpp>
 
 #include <chainbase/chainbase.hpp>
 #include <fc/io/json.hpp>
@@ -57,10 +54,12 @@ struct controller_impl {
    wasm_interface                 wasmif;
    resource_limits_manager        resource_limits;
    authorization_manager          authorization;
-   txfee_manager                  txfee;
    controller::config             conf;
    chain_id_type                  chain_id;
    bool                           replaying = false;
+   db_read_mode                   read_mode = db_read_mode::SPECULATIVE;
+   bool                           in_trx_requiring_checks = false; ///< if true, checks that are normally skipped on replay (e.g. auth checks) cannot be skipped
+   optional<fc::microseconds>     subjective_cpu_leeway;
 
    typedef pair<scope_name,action_name>                   handler_key;
    map< account_name, map<handler_key, apply_handler> >   apply_handlers;
@@ -74,15 +73,17 @@ struct controller_impl {
 
    void pop_block() {
       auto prev = fork_db.get_block( head->header.previous );
-      FC_ASSERT( prev, "attempt to pop beyond last irreversible block" );
+      BES_ASSERT( prev, block_validate_exception, "attempt to pop beyond last irreversible block" );
 
       if( const auto* b = reversible_blocks.find<reversible_block_object,by_num>(head->block_num) )
       {
          reversible_blocks.remove( *b );
       }
 
-      for( const auto& t : head->trxs )
-         unapplied_transactions[t->signed_id] = t;
+      if ( read_mode == db_read_mode::SPECULATIVE ) {
+         for( const auto& t : head->trxs )
+            unapplied_transactions[t->signed_id] = t;
+      }
       head = prev;
       db.undo();
 
@@ -106,9 +107,9 @@ struct controller_impl {
     wasmif( cfg.wasm_runtime ),
     resource_limits( db ),
     authorization( s, db ),
-    txfee(),
     conf( cfg ),
-    chain_id( cfg.genesis.compute_chain_id() )
+    chain_id( cfg.genesis.compute_chain_id() ),
+    read_mode( cfg.read_mode )
    {
 
 #define SET_APP_HANDLER( receiver, contract, action) \
@@ -151,6 +152,9 @@ struct controller_impl {
       } catch (boost::interprocess::bad_alloc& e) {
          wlog( "bad alloc" );
          throw e;
+      } catch ( controller_emit_signal_exception& e ) {
+         wlog( "${details}", ("details", e.to_detail_string()) );
+         throw e;
       } catch ( fc::exception& e ) {
          wlog( "${details}", ("details", e.to_detail_string()) );
       } catch ( ... ) {
@@ -163,10 +167,9 @@ struct controller_impl {
          blog.read_head();
 
       const auto& log_head = blog.head();
-      FC_ASSERT( log_head );
+      BES_ASSERT( log_head, block_log_exception, "block log head can not be found" );
       auto lh_block_num = log_head->block_num();
 
-      emit( self.irreversible_block, s );
       db.commit( s->block_num );
 
       if( s->block_num <= lh_block_num ) {
@@ -175,8 +178,8 @@ struct controller_impl {
          return;
       }
 
-      FC_ASSERT( s->block_num - 1  == lh_block_num, "unlinkable block", ("s->block_num",s->block_num)("lh_block_num", lh_block_num) );
-      FC_ASSERT( s->block->previous == log_head->id(), "irreversible doesn't link to block log head" );
+      BES_ASSERT( s->block_num - 1  == lh_block_num, unlinkable_block_exception, "unlinkable block", ("s->block_num",s->block_num)("lh_block_num", lh_block_num) );
+      BES_ASSERT( s->block->previous == log_head->id(), unlinkable_block_exception, "irreversible doesn't link to block log head" );
       blog.append(s->block);
 
       const auto& ubi = reversible_blocks.get_index<reversible_block_index,by_num>();
@@ -185,6 +188,14 @@ struct controller_impl {
          reversible_blocks.remove( *objitr );
          objitr = ubi.begin();
       }
+
+      if ( read_mode == db_read_mode::IRREVERSIBLE ) {
+         apply_block( s->block, controller::block_status::complete );
+         fork_db.mark_in_current_chain( s, true );
+         fork_db.set_validity( s, true );
+         head = s;
+      }
+      emit( self.irreversible_block, s );
    }
 
    void init() {
@@ -220,7 +231,7 @@ struct controller_impl {
             std::cerr<< "\n";
             ilog( "${n} reversible blocks replayed", ("n",rev) );
             auto end = fc::time_point::now();
-            ilog( "replayed ${n} blocks in seconds, ${mspb} ms/block",
+            ilog( "replayed ${n} blocks in ${duration} seconds, ${mspb} ms/block",
                   ("n", head->block_num)("duration", (end-start).count()/1000000)
                   ("mspb", ((end-start).count()/1000.0)/head->block_num)        );
             std::cerr<< "\n";
@@ -234,17 +245,17 @@ struct controller_impl {
       const auto& ubi = reversible_blocks.get_index<reversible_block_index,by_num>();
       auto objitr = ubi.rbegin();
       if( objitr != ubi.rend() ) {
-         FC_ASSERT( objitr->blocknum == head->block_num,
+         BES_ASSERT( objitr->blocknum == head->block_num, fork_database_exception,
                     "reversible block database is inconsistent with fork database, replay blockchain",
                     ("head",head->block_num)("unconfimed", objitr->blocknum)         );
       } else {
          auto end = blog.read_head();
-         FC_ASSERT( end && end->block_num() == head->block_num,
+         BES_ASSERT( end && end->block_num() == head->block_num, fork_database_exception,
                     "fork database exists but reversible block database does not, replay blockchain",
                     ("blog_head",end->block_num())("head",head->block_num)  );
       }
 
-      FC_ASSERT( db.revision() >= head->block_num, "fork database is inconsistent with shared memory",
+      BES_ASSERT( db.revision() >= head->block_num, fork_database_exception, "fork database is inconsistent with shared memory",
                  ("db",db.revision())("head",head->block_num) );
 
       if( db.revision() > head->block_num ) {
@@ -260,10 +271,6 @@ struct controller_impl {
 
    ~controller_impl() {
       pending.reset();
-      fork_db.close();
-
-      if (head && blog.read_head())
-         edump((db.revision())(head->block_num)(blog.read_head()->block_num()));
 
       db.flush();
       reversible_blocks.flush();
@@ -305,22 +312,12 @@ struct controller_impl {
       });
    }
 
-   void initialize_schedule(producer_schedule_type &schedule) {
-       for (auto producer : conf.genesis.initial_producer_list) {
-         producer_key key;
-         key.producer_name = producer.name;
-         key.block_signing_key = producer.bpkey;
-         schedule.producers.push_back(key);
-       }
-   }
    /**
     *  Sets fork database head to the genesis state.
     */
    void initialize_fork_db() {
       wlog( " Initializing new blockchain with genesis state                  " );
-      producer_schedule_type initial_schedule;
-      initial_schedule.version = 0;
-      initialize_schedule(initial_schedule);
+      producer_schedule_type initial_schedule{ 0, {{N(besio), conf.genesis.initial_key}} };
 
       block_header_state genheader;
       genheader.active_schedule       = initial_schedule;
@@ -340,9 +337,6 @@ struct controller_impl {
    }
 
    void create_native_account( account_name name, const authority& owner, const authority& active, bool is_privileged = false ) {
-      if (db.find<account_object, by_name>(name) != nullptr) {
-        return;
-      }
       db.create<account_object>([&](auto& a) {
          a.name = name;
          a.creation_date = conf.genesis.initial_timestamp;
@@ -372,149 +366,6 @@ struct controller_impl {
       resource_limits.verify_account_ram_usage(name);
    }
 
-   void initialize_producer() {
-      for (auto producer : conf.genesis.initial_producer_list) {
-         auto name = producer.name;
-         auto public_key = producer.bpkey;
-         authority auth(public_key);
-         create_native_account(name, auth, auth, false);
-         memory_db::bp_info obj;
-         obj.name = name;
-         obj.producer_key = public_key;
-         obj.commission_rate = producer.commission_rate;
-         obj.url = producer.url;
-         obj.total_staked = 0;
-         obj.voteage_update_height = 0;
-         obj.total_voteage = 0;
-         obj.emergency = false;
-         auto pk = obj.primary_key();
-         auto db = memory_db(self);
-         bytes data = fc::raw::pack(obj);
-         db.db_store_i64(N(besio), N(besio), N(bps), name, pk, data.data(), data.size() );
-      }
-   }
-
-   void initialize_chain_emergency(){
-      memory_db::chain_status obj;
-      obj.name = N(chainstatus);
-      obj.emergency = false;
-      bytes data = fc::raw::pack(obj);
-      auto pk = obj.primary_key();
-      auto db = memory_db(self);
-      db.db_store_i64(N(besio), N(besio), N(chainstatus), N(besio), pk, data.data(), data.size() );
-   }
-
-   void accounts_table(account_name name, asset balance) {
-      memory_db::account_info obj;
-      obj.name = name;
-      obj.available = balance;
-
-      bytes data = fc::raw::pack(obj);
-      auto pk = obj.primary_key();
-      auto db = memory_db(self);
-      db.db_store_i64(N(besio), N(besio), N(accounts), name, pk, data.data(), data.size());
-   }
-
-   bytes format_name(std::string name) {
-     bytes namef;
-     for (int i = 0; i < 12; i++ ) {
-       if (name[i] >= 'A' && name[i] <= 'Z') {
-         namef.push_back(name[i] + 32);
-       }
-       if (name[i] >= 'a' && name[i] <= 'z') {
-         namef.push_back(name[i]);
-       }
-       if (name[i] >= '1' && name[i] <= '5') {
-         namef.push_back(name[i]);
-       }
-       if (name[i] >= '6' && name[i] <= '9') {
-         namef.push_back(name[i] - 5);
-       }
-     }
-     if (namef.size() < 12) {
-       FC_ASSERT(false, "initialize format name failed");
-     }
-     return namef;
-   }
-
-   void initialize_account() {
-     for (auto account : conf.genesis.initial_account_list) {
-       auto public_key = account.key;
-       auto amount = account.asset;
-       authority auth(public_key);
-       account_name acc_name = account.name;
-       if (acc_name == N(a)) {
-           auto name = std::string(public_key);
-           name = name.substr(name.size() - 12, 12);
-           bytes namef = format_name(name);
-           ilog("---name:${name}, publickey: ${pb}, amount: ${amount}", ("name", namef.data())("pb", public_key)("amount", amount));
-           acc_name = string_to_name(namef.data());
-       }
-       accounts_table(acc_name, amount);
-       create_native_account(acc_name, auth, auth, false);
-     }
-   }
-
-   void initialize_code(const bytes code) {
-     auto code_id = fc::sha256::hash( code.data(), (uint32_t)code.size() );
-     const auto& account = db.get<account_object,by_name>(N(besio));
-     int64_t code_size = code.size();
-     db.modify( account, [&]( auto& a ) {
-       a.last_code_update = conf.genesis.initial_timestamp;
-       a.code_version = code_id;
-       a.code.resize( code_size );
-       memcpy(a.code.data(), code.data(), code_size); 
-     });
-     const auto& account_sequence = db.get<account_sequence_object, by_name>(N(besio));
-     db.modify( account_sequence, [&]( auto& aso ) {
-       aso.code_sequence += 1;
-     });
-   }
-
-   void initialize_abi(const bytes abi) {
-     auto abi_id = fc::sha256::hash(abi.data(), (uint32_t)abi.size());
-     const auto& account = db.get<account_object,by_name>(N(besio));
-     int64_t abi_size = abi.size();
-     db.modify( account, [&]( auto& a ) {
-       a.abi_version = abi_id;
-       a.abi.resize( abi_size );
-       if( abi_size > 0 )
-          memcpy( a.abi.data(), abi.data(), abi_size );
-     });
-     const auto& account_sequence = db.get<account_sequence_object, by_name>(N(besio));
-     db.modify( account_sequence, [&]( auto& aso ) {
-       aso.abi_sequence += 1;
-     });
-   }
-
-   void initialize_token(const bytes code, const bytes abi) {
-     auto code_id = fc::sha256::hash( code.data(), (uint32_t)code.size() );
-     const auto& account = db.get<account_object,by_name>(N(besio.token));
-     int64_t code_size = code.size();
-     db.modify( account, [&]( auto& a ) {
-       a.last_code_update = conf.genesis.initial_timestamp;
-       a.code_version = code_id;
-       a.code.resize( code_size );
-       memcpy(a.code.data(), code.data(), code_size); 
-     });
-     const auto& account_sequence = db.get<account_sequence_object, by_name>(N(besio.token));
-     db.modify( account_sequence, [&]( auto& aso ) {
-       aso.code_sequence += 1;
-     });
-
-     auto abi_id = fc::sha256::hash(abi.data(), (uint32_t)abi.size());
-     int64_t abi_size = abi.size();
-     db.modify( account, [&]( auto& a ) {
-       a.abi_version = abi_id;
-       a.abi.resize( abi_size );
-       if( abi_size > 0 )
-          memcpy( a.abi.data(), abi.data(), abi_size );
-     });
-     db.modify( account_sequence, [&]( auto& aso ) {
-       aso.abi_sequence += 1;
-     });
-   }
-
    void initialize_database() {
       // Initialize block summary index
       for (int i = 0; i < 0x10000; i++)
@@ -536,13 +387,6 @@ struct controller_impl {
 
       authority system_auth(conf.genesis.initial_key);
       create_native_account( config::system_account_name, system_auth, system_auth, true );
-      create_native_account( N(besio.token), system_auth, system_auth, false );
-      initialize_code(conf.genesis.code);
-      initialize_abi(conf.genesis.abi);
-      initialize_token(conf.genesis.token_code, conf.genesis.token_abi);
-      initialize_account();
-      initialize_producer();
-      initialize_chain_emergency();
 
       auto empty_authority = authority(1, {}, {});
       auto active_producers_authority = authority(1, {}, {});
@@ -565,29 +409,40 @@ struct controller_impl {
 
 
 
+   /**
+    * @post regardless of the success of commit block there is no active pending block
+    */
    void commit_block( bool add_to_fork_db ) {
-      if( add_to_fork_db ) {
-         pending->_pending_block_state->validated = true;
-         auto new_bsp = fork_db.add( pending->_pending_block_state );
-         emit( self.accepted_block_header, pending->_pending_block_state );
-         head = fork_db.head();
-         FC_ASSERT( new_bsp == head, "committed block did not become the new head in fork database" );
+      auto reset_pending_on_exit = fc::make_scoped_exit([this]{
+         pending.reset();
+      });
 
+      try {
+         if (add_to_fork_db) {
+            pending->_pending_block_state->validated = true;
+            auto new_bsp = fork_db.add(pending->_pending_block_state);
+            emit(self.accepted_block_header, pending->_pending_block_state);
+            head = fork_db.head();
+            BES_ASSERT(new_bsp == head, fork_database_exception, "committed block did not become the new head in fork database");
+         }
+
+         if( !replaying ) {
+            reversible_blocks.create<reversible_block_object>( [&]( auto& ubo ) {
+               ubo.blocknum = pending->_pending_block_state->block_num;
+               ubo.set_block( pending->_pending_block_state->block );
+            });
+         }
+
+         emit( self.accepted_block, pending->_pending_block_state );
+      } catch (...) {
+         // dont bother resetting pending, instead abort the block
+         reset_pending_on_exit.cancel();
+         abort_block();
+         throw;
       }
 
-  //    ilog((fc::json::to_pretty_string(*pending->_pending_block_state->block)));
-      emit( self.accepted_block, pending->_pending_block_state );
-
-      if( !replaying ) {
-         reversible_blocks.create<reversible_block_object>( [&]( auto& ubo ) {
-            ubo.blocknum = pending->_pending_block_state->block_num;
-            ubo.set_block( pending->_pending_block_state->block );
-         });
-      }
-
+      // push the state for pending.
       pending->push();
-      pending.reset();
-
    }
 
    // The returned scoped_exit should not exceed the lifetime of the pending which existed when make_block_restore_point was called.
@@ -609,30 +464,33 @@ struct controller_impl {
       return fc::make_scoped_exit( std::move(callback) );
    }
 
-   transaction_trace_ptr apply_onerror( const generated_transaction_object& gto,
+   transaction_trace_ptr apply_onerror( const generated_transaction& gtrx,
                                         fc::time_point deadline,
                                         fc::time_point start,
-                                        uint32_t billed_cpu_time_us) {
+                                        uint32_t& cpu_time_to_bill_us, // only set on failure
+                                        uint32_t billed_cpu_time_us,
+                                        bool explicit_billed_cpu_time = false ) {
       signed_transaction etrx;
       // Deliver onerror action containing the failed deferred transaction directly back to the sender.
-      etrx.actions.emplace_back( vector<permission_level>{},
-                                 onerror( gto.sender_id, gto.packed_trx.data(), gto.packed_trx.size() ) );
+      etrx.actions.emplace_back( vector<permission_level>{{gtrx.sender, config::active_name}},
+                                 onerror( gtrx.sender_id, gtrx.packed_trx.data(), gtrx.packed_trx.size() ) );
       etrx.expiration = self.pending_block_time() + fc::microseconds(999'999); // Round up to avoid appearing expired
       etrx.set_reference_block( self.head_block_id() );
 
       transaction_context trx_context( self, etrx, etrx.id(), start );
       trx_context.deadline = deadline;
+      trx_context.explicit_billed_cpu_time = explicit_billed_cpu_time;
       trx_context.billed_cpu_time_us = billed_cpu_time_us;
       transaction_trace_ptr trace = trx_context.trace;
       try {
          trx_context.init_for_implicit_trx();
-         trx_context.published = gto.published;
+         trx_context.published = gtrx.published;
          trx_context.trace->action_traces.emplace_back();
-         trx_context.dispatch_action( trx_context.trace->action_traces.back(), etrx.actions.back(), gto.sender );
+         trx_context.dispatch_action( trx_context.trace->action_traces.back(), etrx.actions.back(), gtrx.sender );
          trx_context.finalize(); // Automatically rounds up network and CPU usage in trace and bills payers if successful
 
          auto restore = make_block_restore_point();
-         trace->receipt = push_receipt( gto.trx_id, transaction_receipt::soft_fail,
+         trace->receipt = push_receipt( gtrx.trx_id, transaction_receipt::soft_fail,
                                         trx_context.billed_cpu_time_us, trace->net_usage );
          fc::move_append( pending->_actions, move(trx_context.executed) );
 
@@ -642,6 +500,7 @@ struct controller_impl {
          restore.cancel();
          return trace;
       } catch( const fc::exception& e ) {
+         cpu_time_to_bill_us = trx_context.update_billed_cpu_time( fc::time_point::now() );
          trace->except = e;
          trace->except_ptr = std::current_exception();
       }
@@ -658,37 +517,59 @@ struct controller_impl {
       db.remove( gto );
    }
 
-   bool failure_is_subjective( const fc::exception& e ) {
+   bool failure_is_subjective( const fc::exception& e ) const {
       auto code = e.code();
-      return (code == block_net_usage_exceeded::code_value) ||
-             (code == block_cpu_usage_exceeded::code_value) ||
-             (code == deadline_exception::code_value)       ||
-             (code == leeway_deadline_exception::code_value);
+      return    (code == subjective_block_production_exception::code_value)
+             || (code == block_net_usage_exceeded::code_value)
+             || (code == greylist_net_usage_exceeded::code_value)
+             || (code == block_cpu_usage_exceeded::code_value)
+             || (code == deadline_exception::code_value)
+             || (code == leeway_deadline_exception::code_value)
+             || (code == actor_whitelist_exception::code_value)
+             || (code == actor_blacklist_exception::code_value)
+             || (code == contract_whitelist_exception::code_value)
+             || (code == contract_blacklist_exception::code_value)
+             || (code == action_blacklist_exception::code_value)
+             || (code == key_blacklist_exception::code_value);
    }
 
-   transaction_trace_ptr push_scheduled_transaction( const transaction_id_type& trxid, fc::time_point deadline, uint32_t billed_cpu_time_us ) {
+   bool scheduled_failure_is_subjective( const fc::exception& e ) const {
+      auto code = e.code();
+      return    (code == tx_cpu_usage_exceeded::code_value)
+             || failure_is_subjective(e);
+   }
+
+   transaction_trace_ptr push_scheduled_transaction( const transaction_id_type& trxid, fc::time_point deadline, uint32_t billed_cpu_time_us, bool explicit_billed_cpu_time = false ) {
       const auto& idx = db.get_index<generated_transaction_multi_index,by_trx_id>();
       auto itr = idx.find( trxid );
-      FC_ASSERT( itr != idx.end(), "unknown transaction" );
-      return push_scheduled_transaction( *itr, deadline, billed_cpu_time_us );
+      BES_ASSERT( itr != idx.end(), unknown_transaction_exception, "unknown transaction" );
+      return push_scheduled_transaction( *itr, deadline, billed_cpu_time_us, explicit_billed_cpu_time );
    }
 
-   transaction_trace_ptr push_scheduled_transaction( const generated_transaction_object& gto, fc::time_point deadline, uint32_t billed_cpu_time_us )
+   transaction_trace_ptr push_scheduled_transaction( const generated_transaction_object& gto, fc::time_point deadline, uint32_t billed_cpu_time_us, bool explicit_billed_cpu_time = false )
    { try {
       auto undo_session = db.start_undo_session(true);
-      fc::datastream<const char*> ds( gto.packed_trx.data(), gto.packed_trx.size() );
+      auto gtrx = generated_transaction(gto);
 
-      auto remove_retained_state = fc::make_scoped_exit([&, this](){
-         remove_scheduled_transaction(gto);
-      });
+      // remove the generated transaction object after making a copy
+      // this will ensure that anything which affects the GTO multi-index-container will not invalidate
+      // data we need to successfully retire this transaction.
+      //
+      // IF the transaction FAILs in a subjective way, `undo_session` should expire without being squashed
+      // resulting in the GTO being restored and available for a future block to retire.
+      remove_scheduled_transaction(gto);
 
-      FC_ASSERT( gto.delay_until <= self.pending_block_time(), "this transaction isn't ready",
-                 ("gto.delay_until",gto.delay_until)("pbt",self.pending_block_time())          );
-      if( gto.expiration < self.pending_block_time() ) {
+      fc::datastream<const char*> ds( gtrx.packed_trx.data(), gtrx.packed_trx.size() );
+
+      BES_ASSERT( gtrx.delay_until <= self.pending_block_time(), transaction_exception, "this transaction isn't ready",
+                 ("gtrx.delay_until",gtrx.delay_until)("pbt",self.pending_block_time())          );
+
+
+      if( gtrx.expiration < self.pending_block_time() ) {
          auto trace = std::make_shared<transaction_trace>();
-         trace->id = gto.trx_id;
+         trace->id = gtrx.trx_id;
          trace->scheduled = false;
-         trace->receipt = push_receipt( gto.trx_id, transaction_receipt::expired, billed_cpu_time_us, 0 ); // expire the transaction
+         trace->receipt = push_receipt( gtrx.trx_id, transaction_receipt::expired, billed_cpu_time_us, 0 ); // expire the transaction
          undo_session.squash();
          return trace;
       }
@@ -696,20 +577,27 @@ struct controller_impl {
       signed_transaction dtrx;
       fc::raw::unpack(ds,static_cast<transaction&>(dtrx) );
 
-      transaction_context trx_context( self, dtrx, gto.trx_id );
+      auto reset_in_trx_requiring_checks = fc::make_scoped_exit([old_value=in_trx_requiring_checks,this](){
+         in_trx_requiring_checks = old_value;
+      });
+      in_trx_requiring_checks = true;
+
+      uint32_t cpu_time_to_bill_us = billed_cpu_time_us;
+
+      transaction_context trx_context( self, dtrx, gtrx.trx_id );
+      trx_context.leeway =  fc::microseconds(0); // avoid stealing cpu resource
       trx_context.deadline = deadline;
+      trx_context.explicit_billed_cpu_time = explicit_billed_cpu_time;
       trx_context.billed_cpu_time_us = billed_cpu_time_us;
       transaction_trace_ptr trace = trx_context.trace;
-      flat_set<account_name>  bill_to_accounts;
       try {
-         trx_context.init_for_deferred_trx( gto.published );
-         bill_to_accounts = trx_context.bill_to_accounts;
+         trx_context.init_for_deferred_trx( gtrx.published );
          trx_context.exec();
          trx_context.finalize(); // Automatically rounds up network and CPU usage in trace and bills payers if successful
 
          auto restore = make_block_restore_point();
 
-         trace->receipt = push_receipt( gto.trx_id,
+         trace->receipt = push_receipt( gtrx.trx_id,
                                         transaction_receipt::executed,
                                         trx_context.billed_cpu_time_us,
                                         trace->net_usage );
@@ -723,39 +611,56 @@ struct controller_impl {
          restore.cancel();
          return trace;
       } catch( const fc::exception& e ) {
+         cpu_time_to_bill_us = trx_context.update_billed_cpu_time( fc::time_point::now() );
          trace->except = e;
          trace->except_ptr = std::current_exception();
          trace->elapsed = fc::time_point::now() - trx_context.start;
       }
       trx_context.undo_session.undo();
 
-      // Only soft or hard failure logic below:
+      // Only subjective OR soft OR hard failure logic below:
 
-      if( gto.sender != account_name() && !failure_is_subjective(*trace->except)) {
+      if( gtrx.sender != account_name() && !failure_is_subjective(*trace->except)) {
          // Attempt error handling for the generated transaction.
-         edump((trace->except->to_detail_string()));
-         auto error_trace = apply_onerror( gto, deadline, trx_context.start, trx_context.billed_cpu_time_us );
+         dlog("${detail}", ("detail", trace->except->to_detail_string()));
+         auto error_trace = apply_onerror( gtrx, deadline, trx_context.pseudo_start, cpu_time_to_bill_us, billed_cpu_time_us, explicit_billed_cpu_time );
          error_trace->failed_dtrx_trace = trace;
          trace = error_trace;
          if( !trace->except_ptr ) {
             undo_session.squash();
             return trace;
          }
+         trace->elapsed = fc::time_point::now() - trx_context.start;
       }
 
-      // Only hard failure OR subjective failure logic below:
+      // Only subjective OR hard failure logic below:
 
-      trace->elapsed = fc::time_point::now() - trx_context.start;
-
-      resource_limits.add_transaction_usage( bill_to_accounts, trx_context.billed_cpu_time_us, 0,
-                                             block_timestamp_type(self.pending_block_time()).slot ); // Should never fail
-
-      if (failure_is_subjective(*trace->except)) {
-         // this is a subjective failure, don't remove the retained state so it can be
-         // retried at a later time and don't include any artifact of the transaction in the pending block
-         remove_retained_state.cancel();
+      // subjectivity changes based on producing vs validating
+      bool subjective  = false;
+      if (explicit_billed_cpu_time) {
+         subjective = failure_is_subjective(*trace->except);
       } else {
-         trace->receipt = push_receipt(gto.trx_id, transaction_receipt::hard_fail, trx_context.billed_cpu_time_us, 0);
+         subjective = scheduled_failure_is_subjective(*trace->except);
+      }
+
+      if ( !subjective ) {
+         // hard failure logic
+
+         if( !explicit_billed_cpu_time ) {
+            auto& rl = self.get_mutable_resource_limits_manager();
+            rl.update_account_usage( trx_context.bill_to_accounts, block_timestamp_type(self.pending_block_time()).slot );
+            int64_t account_cpu_limit = 0;
+            std::tie( std::ignore, account_cpu_limit, std::ignore ) = trx_context.max_bandwidth_billed_accounts_can_pay( true );
+
+            cpu_time_to_bill_us = static_cast<uint32_t>( std::min( std::min( static_cast<int64_t>(cpu_time_to_bill_us),
+                                                                             account_cpu_limit                          ),
+                                                                   trx_context.initial_objective_duration_limit.count()    ) );
+         }
+
+         resource_limits.add_transaction_usage( trx_context.bill_to_accounts, cpu_time_to_bill_us, 0,
+                                                block_timestamp_type(self.pending_block_time()).slot ); // Should never fail
+
+         trace->receipt = push_receipt(gtrx.trx_id, transaction_receipt::hard_fail, cpu_time_to_bill_us, 0);
          emit( self.applied_transaction, trace );
          undo_session.squash();
       }
@@ -771,7 +676,7 @@ struct controller_impl {
    const transaction_receipt& push_receipt( const T& trx, transaction_receipt_header::status_enum status,
                                             uint64_t cpu_usage_us, uint64_t net_usage ) {
       uint64_t net_usage_words = net_usage / 8;
-      // FC_ASSERT( net_usage_words*8 == net_usage, "net_usage is not divisible by 8" );
+      BES_ASSERT( net_usage_words*8 == net_usage, transaction_exception, "net_usage is not divisible by 8" );
       pending->_pending_block_state->block->transactions.emplace_back( trx );
       transaction_receipt& r = pending->_pending_block_state->block->transactions.back();
       r.cpu_usage_us         = cpu_usage_us;
@@ -779,44 +684,6 @@ struct controller_impl {
       r.status               = status;
       return r;
    }
-
-    bool check_chainstatus(){
-      const auto * cstatus_tid = db.find<table_id_object, by_code_scope_table>(boost::make_tuple(N(besio), N(besio), N(chainstatus)));
-      FC_ASSERT((cstatus_tid != nullptr),"get chainstatus fatal");
-
-      const auto &idx = db.get_index<key_value_index, by_scope_primary>();
-      auto it = idx.lower_bound(boost::make_tuple(cstatus_tid->id, N(chainstatus)));
-      FC_ASSERT((it != idx.end()),"get chainstatus fatal");
-
-      vector<char> data(it->value.size());
-      memcpy(data.data(),it->value.data(),it->value.size());
-
-      auto cstatus = fc::raw::unpack<memory_db::chain_status>(data);
-      return cstatus.emergency;
-    }
-
-    void check_action(vector<action>& actions)
-    {
-        FC_ASSERT(actions.size() == 1, "action size not equal 1");
-        action _a = actions.at(0) ;
-        FC_ASSERT(_a.data.size() < config::default_trx_size, "must less than 100 * 1024 bytes");
-        FC_ASSERT((check_chainstatus() ? (_a.name.to_string() == "setemergency" || _a.name.to_string() == "onblock" || _a.name.to_string() == "onfee") : true),
-                  "chain is in emergency now !" );
-
-        if ( "transfer" == _a.name.to_string() ) {
-          FC_ASSERT(_a.data.size() != 0, "action bytes should not be zero!");
-          auto _v =  fc::raw::unpack<tmp_transfer >(_a.data);
-          ilog("transfer memo is : ${mem}", ("mem", _v.memo));
-          FC_ASSERT(_v.memo.size() <= 256, "memo has more than 256 bytes!");
-        }
-
-        if ( "issue" == _a.name.to_string() ) {
-          FC_ASSERT(_a.data.size() != 0, "action bytes should not be zero!");
-          auto _v = fc::raw::unpack<tmp_issue >(_a.data);
-          ilog("issue memo is : ${mem}", ("mem", _v.memo));
-          FC_ASSERT(_v.memo.size() <= 256, "memo has more than 256 bytes!");
-        }
-     }
 
    /**
     *  This is the entry point for new transactions to the block state. It will check authorization and
@@ -826,35 +693,39 @@ struct controller_impl {
    transaction_trace_ptr push_transaction( const transaction_metadata_ptr& trx,
                                            fc::time_point deadline,
                                            bool implicit,
-                                           uint32_t billed_cpu_time_us  )
+                                           uint32_t billed_cpu_time_us,
+                                           bool explicit_billed_cpu_time = false )
    {
-      FC_ASSERT(deadline != fc::time_point(), "deadline cannot be uninitialized");
-      FC_ASSERT(trx->trx.delay_sec.value == 0UL, "delay,transaction failed");
-      FC_ASSERT(trx->trx.context_free_actions.size()==0,"context free actions size should be zero!");
-      check_action(trx->trx.actions);
+      BES_ASSERT(deadline != fc::time_point(), transaction_exception, "deadline cannot be uninitialized");
+
       transaction_trace_ptr trace;
       try {
          transaction_context trx_context(self, trx->trx, trx->id);
+         if ((bool)subjective_cpu_leeway && pending->_block_status == controller::block_status::incomplete) {
+            trx_context.leeway = *subjective_cpu_leeway;
+         }
          trx_context.deadline = deadline;
+         trx_context.explicit_billed_cpu_time = explicit_billed_cpu_time;
          trx_context.billed_cpu_time_us = billed_cpu_time_us;
          trace = trx_context.trace;
          try {
             if( implicit ) {
                trx_context.init_for_implicit_trx();
+               trx_context.can_subjectively_fail = false;
             } else {
                trx_context.init_for_input_trx( trx->packed_trx.get_unprunable_size(),
                                                trx->packed_trx.get_prunable_size(),
-                                               trx->trx.signatures.size() );
+                                               trx->trx.signatures.size());
             }
 
-            if( !implicit && pending->_block_status == controller::block_status::incomplete ) {
+            if( trx_context.can_subjectively_fail && pending->_block_status == controller::block_status::incomplete ) {
                check_actor_list( trx_context.bill_to_accounts ); // Assumes bill_to_accounts is the set of actors authorizing the transaction
             }
 
 
             trx_context.delay = fc::seconds(trx->trx.delay_sec);
 
-            if (!implicit) {
+            if( !self.skip_auth_check() && !implicit ) {
                authorization.check_authorization(
                        trx->trx.actions,
                        trx->recover_keys( chain_id ),
@@ -865,29 +736,9 @@ struct controller_impl {
                                  std::placeholders::_1)*/,
                        false
                );
-
-               FC_ASSERT(txfee.check_transaction(trx->trx) == true, "transaction include actor more than one");
-               FC_ASSERT(trx->trx.fee == txfee.get_required_fee(trx->trx), "set tx fee failed");
-               try {
-                  auto onftrx = std::make_shared<transaction_metadata>( get_on_fee_transaction(trx->trx.fee, trx->trx.actions[0].authorization[0].actor) );
-                  auto onftrace = push_transaction( onftrx, fc::time_point::maximum(), true, config::default_min_transaction_cpu_usage);
-                  if( onftrace->except ) throw *onftrace->except;
-                  ilog("-------call onfee function tx");
-               } catch ( ... ) {
-                  FC_ASSERT(false, "on fee transaction failed, but shouldn't enough asset to pay for transaction fee");
-               }
             }
-
-            try {
-              trx_context.exec();
-              trx_context.finalize(); // Automatically rounds up network and CPU usage in trace and bills payers if successful
-            } catch (const fc::exception &e) {
-              trace->except = e;
-              trace->except_ptr = std::current_exception();
-              if (head->block_num != 1) {
-                ilog("---trnasction exe failed--------trace: ${trace}", ("trace", trace));
-              }
-            }
+            trx_context.exec();
+            trx_context.finalize(); // Automatically rounds up network and CPU usage in trace and bills payers if successful
 
             auto restore = make_block_restore_point();
 
@@ -915,8 +766,14 @@ struct controller_impl {
 
             emit(self.applied_transaction, trace);
 
-            trx_context.squash();
-            restore.cancel();
+
+            if ( read_mode != db_read_mode::SPECULATIVE && pending->_block_status == controller::block_status::incomplete ) {
+               //this may happen automatically in destructor, but I prefere make it more explicit
+               trx_context.undo();
+            } else {
+               restore.cancel();
+               trx_context.squash();
+            }
 
             if (!implicit) {
                unapplied_transactions.erase( trx->signed_id );
@@ -937,9 +794,9 @@ struct controller_impl {
 
 
    void start_block( block_timestamp_type when, uint16_t confirm_block_count, controller::block_status s ) {
-      FC_ASSERT( !pending );
+      BES_ASSERT( !pending, block_validate_exception, "pending block is not available" );
 
-      FC_ASSERT( db.revision() == head->block_num, "",
+      BES_ASSERT( db.revision() == head->block_num, database_exception, "db revision is not on par with head block",
                 ("db.revision()", db.revision())("controller_head_block", head->block_num)("fork_db_head_block", fork_db.head()->block_num) );
 
       auto guard_pending = fc::make_scoped_exit([this](){
@@ -957,79 +814,119 @@ struct controller_impl {
 
       auto was_pending_promoted = pending->_pending_block_state->maybe_promote_pending();
 
+      //modify state in speculative block only if we are speculative reads mode (other wise we need clean state for head or irreversible reads)
+      if ( read_mode == db_read_mode::SPECULATIVE || pending->_block_status != controller::block_status::incomplete ) {
 
+         const auto& gpo = db.get<global_property_object>();
+         if( gpo.proposed_schedule_block_num.valid() && // if there is a proposed schedule that was proposed in a block ...
+             ( *gpo.proposed_schedule_block_num <= pending->_pending_block_state->dpos_irreversible_blocknum ) && // ... that has now become irreversible ...
+             pending->_pending_block_state->pending_schedule.producers.size() == 0 && // ... and there is room for a new pending schedule ...
+             !was_pending_promoted // ... and not just because it was promoted to active at the start of this block, then:
+         )
+            {
+               // Promote proposed schedule to pending schedule.
+               if( !replaying ) {
+                  ilog( "promoting proposed schedule (set in block ${proposed_num}) to pending; current block: ${n} lib: ${lib} schedule: ${schedule} ",
+                        ("proposed_num", *gpo.proposed_schedule_block_num)("n", pending->_pending_block_state->block_num)
+                        ("lib", pending->_pending_block_state->dpos_irreversible_blocknum)
+                        ("schedule", static_cast<producer_schedule_type>(gpo.proposed_schedule) ) );
+               }
+               pending->_pending_block_state->set_new_producers( gpo.proposed_schedule );
+               db.modify( gpo, [&]( auto& gp ) {
+                     gp.proposed_schedule_block_num = optional<block_num_type>();
+                     gp.proposed_schedule.clear();
+                  });
+            }
 
-      const auto& gpo = db.get<global_property_object>();
-      if( gpo.proposed_schedule_block_num.valid() && // if there is a proposed schedule that was proposed in a block ...
-          ( *gpo.proposed_schedule_block_num <= pending->_pending_block_state->dpos_irreversible_blocknum ) && // ... that has now become irreversible ...
-          pending->_pending_block_state->pending_schedule.producers.size() == 0 && // ... and there is room for a new pending schedule ...
-          !was_pending_promoted // ... and not just because it was promoted to active at the start of this block, then:
-        )
-      {
-         // Promote proposed schedule to pending schedule.
-         if( !replaying ) {
-            ilog( "promoting proposed schedule (set in block ${proposed_num}) to pending; current block: ${n} lib: ${lib} schedule: ${schedule} ",
-                  ("proposed_num", *gpo.proposed_schedule_block_num)("n", pending->_pending_block_state->block_num)
-                  ("lib", pending->_pending_block_state->dpos_irreversible_blocknum)
-                  ("schedule", static_cast<producer_schedule_type>(gpo.proposed_schedule) ) );
+         try {
+            auto onbtrx = std::make_shared<transaction_metadata>( get_on_block_transaction() );
+            auto reset_in_trx_requiring_checks = fc::make_scoped_exit([old_value=in_trx_requiring_checks,this](){
+                  in_trx_requiring_checks = old_value;
+               });
+            in_trx_requiring_checks = true;
+            push_transaction( onbtrx, fc::time_point::maximum(), true, self.get_global_properties().configuration.min_transaction_cpu_usage, true );
+         } catch( const boost::interprocess::bad_alloc& e  ) {
+            elog( "on block transaction failed due to a bad allocation" );
+            throw;
+         } catch( const fc::exception& e ) {
+            wlog( "on block transaction failed, but shouldn't impact block generation, system contract needs update" );
+            edump((e.to_detail_string()));
+         } catch( ... ) {
          }
-         pending->_pending_block_state->set_new_producers( gpo.proposed_schedule );
-         db.modify( gpo, [&]( auto& gp ) {
-            gp.proposed_schedule_block_num = optional<block_num_type>();
-            gp.proposed_schedule.clear();
-         });
+
+         clear_expired_input_transactions();
+         update_producers_authority();
       }
 
-      try {
-         auto onbtrx = std::make_shared<transaction_metadata>( get_on_block_transaction() );
-         push_transaction( onbtrx, fc::time_point::maximum(), true, self.get_global_properties().configuration.min_transaction_cpu_usage );
-      } catch( const boost::interprocess::bad_alloc& e  ) {
-         elog( "on block transaction failed due to a bad allocation" );
-         throw;
-      } catch( const fc::exception& e ) {
-         wlog( "on block transaction failed, but shouldn't impact block generation, system contract needs update" );
-         edump((e.to_detail_string()));
-      } catch( ... ) {
-         wlog( "on block transaction failed, but shouldn't impact block generation, system contract needs update" );
-      }
-
-      clear_expired_input_transactions();
-      update_producers_authority();
       guard_pending.cancel();
    } // start_block
 
 
 
-   void sign_block( const std::function<signature_type( const digest_type& )>& signer_callback, bool trust  ) {
+   void sign_block( const std::function<signature_type( const digest_type& )>& signer_callback  ) {
       auto p = pending->_pending_block_state;
 
-      p->sign( signer_callback, false); //trust );
+      p->sign( signer_callback );
 
       static_cast<signed_block_header&>(*p->block) = p->header;
    } /// sign_block
 
    void apply_block( const signed_block_ptr& b, controller::block_status s ) { try {
       try {
-         FC_ASSERT( b->block_extensions.size() == 0, "no supported extensions" );
+         BES_ASSERT( b->block_extensions.size() == 0, block_validate_exception, "no supported extensions" );
          start_block( b->timestamp, b->confirmed, s );
 
+         transaction_trace_ptr trace;
+
          for( const auto& receipt : b->transactions ) {
+            auto num_pending_receipts = pending->_pending_block_state->block->transactions.size();
             if( receipt.trx.contains<packed_transaction>() ) {
                auto& pt = receipt.trx.get<packed_transaction>();
                auto mtrx = std::make_shared<transaction_metadata>(pt);
-               push_transaction( mtrx, fc::time_point::maximum(), false, receipt.cpu_usage_us );
+               trace = push_transaction( mtrx, fc::time_point::maximum(), false, receipt.cpu_usage_us, true );
+            } else if( receipt.trx.contains<transaction_id_type>() ) {
+               trace = push_scheduled_transaction( receipt.trx.get<transaction_id_type>(), fc::time_point::maximum(), receipt.cpu_usage_us, true );
+            } else {
+               BES_ASSERT( false, block_validate_exception, "encountered unexpected receipt type" );
             }
-            else if( receipt.trx.contains<transaction_id_type>() ) {
-               push_scheduled_transaction( receipt.trx.get<transaction_id_type>(), fc::time_point::maximum(), receipt.cpu_usage_us );
+
+            bool transaction_failed =  trace && trace->except;
+            bool transaction_can_fail = receipt.status == transaction_receipt_header::hard_fail && receipt.trx.contains<transaction_id_type>();
+            if( transaction_failed && !transaction_can_fail) {
+               edump((*trace));
+               throw *trace->except;
             }
+
+            BES_ASSERT( pending->_pending_block_state->block->transactions.size() > 0,
+                        block_validate_exception, "expected a receipt",
+                        ("block", *b)("expected_receipt", receipt)
+                      );
+            BES_ASSERT( pending->_pending_block_state->block->transactions.size() == num_pending_receipts + 1,
+                        block_validate_exception, "expected receipt was not added",
+                        ("block", *b)("expected_receipt", receipt)
+                      );
+            const transaction_receipt_header& r = pending->_pending_block_state->block->transactions.back();
+            BES_ASSERT( r == static_cast<const transaction_receipt_header&>(receipt),
+                        block_validate_exception, "receipt does not match",
+                        ("producer_receipt", receipt)("validator_receipt", pending->_pending_block_state->block->transactions.back()) );
          }
 
          finalize_block();
-         sign_block( [&]( const auto& ){ return b->producer_signature; }, false ); //trust );
 
-         // this is implied by the signature passing
-         //FC_ASSERT( b->id() == pending->_pending_block_state->block->id(),
-         //           "applying block didn't produce expected block id" );
+         // this implicitly asserts that all header fields (less the signature) are identical
+         BES_ASSERT(b->id() == pending->_pending_block_state->header.id(),
+                   block_validate_exception, "Block ID does not match",
+                   ("producer_block_id",b->id())("validator_block_id",pending->_pending_block_state->header.id()));
+
+         // We need to fill out the pending block state's block because that gets serialized in the reversible block log
+         // in the future we can optimize this by serializing the original and not the copy
+
+         // we can always trust this signature because,
+         //   - prior to apply_block, we call fork_db.add which does a signature check IFF the block is untrusted
+         //   - OTHERWISE the block is trusted and therefore we trust that the signature is valid
+         // Also, as ::sign_block does not lazily calculate the digest of the block, we can just short-circuit to save cycles
+         pending->_pending_block_state->header.producer_signature = b->producer_signature;
+         static_cast<signed_block_header&>(*pending->_pending_block_state->block) =  pending->_pending_block_state->header;
 
          commit_block(false);
          return;
@@ -1043,22 +940,31 @@ struct controller_impl {
 
    void push_block( const signed_block_ptr& b, controller::block_status s ) {
     //  idump((fc::json::to_pretty_string(*b)));
-      FC_ASSERT(!pending, "it is not valid to push a block when there is a pending block");
+      BES_ASSERT(!pending, block_validate_exception, "it is not valid to push a block when there is a pending block");
       try {
-         FC_ASSERT( b );
-         FC_ASSERT( s != controller::block_status::incomplete, "invalid block status for a completed block" );
+         BES_ASSERT( b, block_validate_exception, "trying to push empty block" );
+         BES_ASSERT( s != controller::block_status::incomplete, block_validate_exception, "invalid block status for a completed block" );
+         emit( self.pre_accepted_block, b );
          bool trust = !conf.force_all_checks && (s == controller::block_status::irreversible || s == controller::block_status::validated);
          auto new_header_state = fork_db.add( b, trust );
          emit( self.accepted_block_header, new_header_state );
-         maybe_switch_forks( s );
+         // on replay irreversible is not emitted by fork database, so emit it explicitly here
+         if( s == controller::block_status::irreversible )
+            emit( self.irreversible_block, new_header_state );
+
+         if ( read_mode != db_read_mode::IRREVERSIBLE ) {
+            maybe_switch_forks( s );
+         }
       } FC_LOG_AND_RETHROW( )
    }
 
    void push_confirmation( const header_confirmation& c ) {
-      FC_ASSERT(!pending, "it is not valid to push a confirmation when there is a pending block");
+      BES_ASSERT(!pending, block_validate_exception, "it is not valid to push a confirmation when there is a pending block");
       fork_db.add( c );
       emit( self.accepted_confirmation, c );
-      maybe_switch_forks();
+      if ( read_mode != db_read_mode::IRREVERSIBLE ) {
+         maybe_switch_forks();
+      }
    }
 
    void maybe_switch_forks( controller::block_status s = controller::block_status::complete ) {
@@ -1083,7 +989,7 @@ struct controller_impl {
             fork_db.mark_in_current_chain( *itr , false );
             pop_block();
          }
-         FC_ASSERT( self.head_block_id() == branches.second.back()->header.previous,
+         BES_ASSERT( self.head_block_id() == branches.second.back()->header.previous, fork_database_exception,
                     "loss of sync between fork_db and chainbase during fork switch" ); // _should_ never fail
 
          for( auto ritr = branches.first.rbegin(); ritr != branches.first.rend(); ++ritr) {
@@ -1109,7 +1015,7 @@ struct controller_impl {
                   fork_db.mark_in_current_chain( *itr , false );
                   pop_block();
                }
-               FC_ASSERT( self.head_block_id() == branches.second.back()->header.previous,
+               BES_ASSERT( self.head_block_id() == branches.second.back()->header.previous, fork_database_exception,
                           "loss of sync between fork_db and chainbase during fork switch reversal" ); // _should_ never fail
 
                // re-apply good blocks
@@ -1127,8 +1033,10 @@ struct controller_impl {
 
    void abort_block() {
       if( pending ) {
-         for( const auto& t : pending->_pending_block_state->trxs )
-            unapplied_transactions[t->signed_id] = t;
+         if ( read_mode == db_read_mode::SPECULATIVE ) {
+            for( const auto& t : pending->_pending_block_state->trxs )
+               unapplied_transactions[t->signed_id] = t;
+         }
          pending.reset();
       }
    }
@@ -1160,7 +1068,7 @@ struct controller_impl {
 
    void finalize_block()
    {
-      FC_ASSERT(pending, "it is not valid to finalize when there is no pending block");
+      BES_ASSERT(pending, block_validate_exception, "it is not valid to finalize when there is no pending block");
       try {
 
 
@@ -1294,6 +1202,26 @@ struct controller_impl {
       }
    }
 
+   void check_action_list( account_name code, action_name action )const {
+      if( conf.action_blacklist.size() > 0 ) {
+         BES_ASSERT( conf.action_blacklist.find( std::make_pair(code, action) ) == conf.action_blacklist.end(),
+                     action_blacklist_exception,
+                     "action '${code}::${action}' is on the action blacklist",
+                     ("code", code)("action", action)
+                   );
+      }
+   }
+
+   void check_key_list( const public_key_type& key )const {
+      if( conf.key_blacklist.size() > 0 ) {
+         BES_ASSERT( conf.key_blacklist.find( key ) == conf.key_blacklist.end(),
+                     key_blacklist_exception,
+                     "public key '${key}' is on the key blacklist",
+                     ("key", key)
+                   );
+      }
+   }
+
    /*
    bool should_check_tapos()const { return true; }
 
@@ -1329,22 +1257,6 @@ struct controller_impl {
       return trx;
    }
 
-   signed_transaction get_on_fee_transaction( asset fee, account_name actor)
-   {
-      action on_fee_act;
-      on_fee_act.account = config::system_account_name;
-      on_fee_act.name = N(onfee);
-      on_fee_act.authorization = vector<permission_level>{{actor, config::active_name}};
-
-      fee_paramter param(actor, fee, self.head_block_header().producer);
-      on_fee_act.data = fc::raw::pack(param);
-
-      signed_transaction trx;
-      trx.actions.emplace_back(std::move(on_fee_act));
-      trx.set_reference_block(self.head_block_id());
-      trx.expiration = self.pending_block_time() + fc::microseconds(999'999); // Round up to nearest second to avoid appearing expired
-      return trx;
-   }
 }; /// controller_impl
 
 const resource_limits_manager&   controller::get_resource_limits_manager()const
@@ -1365,15 +1277,6 @@ authorization_manager&         controller::get_mutable_authorization_manager()
    return my->authorization;
 }
 
-const txfee_manager&   controller::get_txfee_manager()const
-{
-   return my->txfee;
-}
-txfee_manager&         controller::get_mutable_txfee_manager()
-{
-   return my->txfee;
-}
-
 controller::controller( const controller::config& cfg )
 :my( new controller_impl( cfg, *this ) )
 {
@@ -1381,6 +1284,10 @@ controller::controller( const controller::config& cfg )
 
 controller::~controller() {
    my->abort_block();
+   //close fork_db here, because it can generate "irreversible" signal to this controller,
+   //in case if read-mode == IRREVERSIBLE, we will apply latest irreversible block
+   //for that we need 'my' to be valid pointer pointing to valid controller_impl.
+   my->fork_db.close();
 }
 
 
@@ -1402,18 +1309,22 @@ fork_database& controller::fork_db()const { return my->fork_db; }
 
 
 void controller::start_block( block_timestamp_type when, uint16_t confirm_block_count) {
+   validate_db_available_size();
    my->start_block(when, confirm_block_count, block_status::incomplete );
 }
 
 void controller::finalize_block() {
+   validate_db_available_size();
    my->finalize_block();
 }
 
 void controller::sign_block( const std::function<signature_type( const digest_type& )>& signer_callback ) {
-   my->sign_block( signer_callback, false /* don't trust */);
+   my->sign_block( signer_callback );
 }
 
 void controller::commit_block() {
+   validate_db_available_size();
+   validate_reversible_available_size();
    my->commit_block(true);
 }
 
@@ -1422,20 +1333,25 @@ void controller::abort_block() {
 }
 
 void controller::push_block( const signed_block_ptr& b, block_status s ) {
+   validate_db_available_size();
+   validate_reversible_available_size();
    my->push_block( b, s );
 }
 
 void controller::push_confirmation( const header_confirmation& c ) {
+   validate_db_available_size();
    my->push_confirmation( c );
 }
 
 transaction_trace_ptr controller::push_transaction( const transaction_metadata_ptr& trx, fc::time_point deadline, uint32_t billed_cpu_time_us ) {
-   return my->push_transaction(trx, deadline, false, billed_cpu_time_us);
+   validate_db_available_size();
+   return my->push_transaction(trx, deadline, false, billed_cpu_time_us, billed_cpu_time_us > 0 );
 }
 
 transaction_trace_ptr controller::push_scheduled_transaction( const transaction_id_type& trxid, fc::time_point deadline, uint32_t billed_cpu_time_us )
 {
-   return my->push_scheduled_transaction( trxid, deadline, billed_cpu_time_us );
+   validate_db_available_size();
+   return my->push_scheduled_transaction( trxid, deadline, billed_cpu_time_us, billed_cpu_time_us > 0 );
 }
 
 uint32_t controller::head_block_num()const {
@@ -1457,13 +1373,28 @@ block_state_ptr controller::head_block_state()const {
    return my->head;
 }
 
+uint32_t controller::fork_db_head_block_num()const {
+   return my->fork_db.head()->block_num;
+}
+
+block_id_type controller::fork_db_head_block_id()const {
+   return my->fork_db.head()->id;
+}
+
+time_point controller::fork_db_head_block_time()const {
+   return my->fork_db.head()->header.timestamp;
+}
+
+account_name  controller::fork_db_head_block_producer()const {
+   return my->fork_db.head()->header.producer;
+}
+
 block_state_ptr controller::pending_block_state()const {
    if( my->pending ) return my->pending->_pending_block_state;
    return block_state_ptr();
 }
-
 time_point controller::pending_block_time()const {
-   FC_ASSERT( my->pending, "no pending block" );
+   BES_ASSERT( my->pending, block_validate_exception, "no pending block" );
    return my->pending->_pending_block_state->header.timestamp;
 }
 
@@ -1599,7 +1530,7 @@ optional<producer_schedule_type> controller::proposed_producers()const {
 }
 
 bool controller::skip_auth_check()const {
-   return my->replaying && !my->conf.force_all_checks;
+   return my->replaying && !my->conf.force_all_checks && !my->in_trx_requiring_checks;
 }
 
 bool controller::contracts_console()const {
@@ -1608,6 +1539,10 @@ bool controller::contracts_console()const {
 
 chain_id_type controller::get_chain_id()const {
    return my->chain_id;
+}
+
+db_read_mode controller::get_read_mode()const {
+   return my->read_mode;
 }
 
 const apply_handler* controller::find_apply_handler( account_name receiver, account_name scope, action_name act ) const
@@ -1631,9 +1566,13 @@ const account_object& controller::get_account( account_name name )const
 
 vector<transaction_metadata_ptr> controller::get_unapplied_transactions() const {
    vector<transaction_metadata_ptr> result;
-   result.reserve(my->unapplied_transactions.size());
-   for ( const auto& entry: my->unapplied_transactions ) {
-      result.emplace_back(entry.second);
+   if ( my->read_mode == db_read_mode::SPECULATIVE ) {
+      result.reserve(my->unapplied_transactions.size());
+      for ( const auto& entry: my->unapplied_transactions ) {
+         result.emplace_back(entry.second);
+      }
+   } else {
+      BES_ASSERT( my->unapplied_transactions.empty(), transaction_exception, "not empty unapplied_transactions in non-speculative mode" ); //should never happen
    }
    return result;
 }
@@ -1660,6 +1599,14 @@ vector<transaction_id_type> controller::get_scheduled_transactions() const {
 
 void controller::check_contract_list( account_name code )const {
    my->check_contract_list( code );
+}
+
+void controller::check_action_list( account_name code, action_name action )const {
+   my->check_action_list( code, action );
+}
+
+void controller::check_key_list( const public_key_type& key )const {
+   my->check_key_list( key );
 }
 
 bool controller::is_producing_block()const {
@@ -1719,9 +1666,40 @@ void controller::validate_tapos( const transaction& trx )const { try {
               ("tapos_summary", tapos_block_summary));
 } FC_CAPTURE_AND_RETHROW() }
 
+void controller::validate_db_available_size() const {
+   const auto free = db().get_segment_manager()->get_free_memory();
+   const auto guard = my->conf.state_guard_size;
+   BES_ASSERT(free >= guard, database_guard_exception, "database free: ${f}, guard size: ${g}", ("f", free)("g",guard));
+}
+
+void controller::validate_reversible_available_size() const {
+   const auto free = my->reversible_blocks.get_segment_manager()->get_free_memory();
+   const auto guard = my->conf.reversible_guard_size;
+   BES_ASSERT(free >= guard, reversible_guard_exception, "reversible free: ${f}, guard size: ${g}", ("f", free)("g",guard));
+}
+
 bool controller::is_known_unexpired_transaction( const transaction_id_type& id) const {
    return db().find<transaction_object, by_trx_id>(id);
 }
 
+void controller::set_subjective_cpu_leeway(fc::microseconds leeway) {
+   my->subjective_cpu_leeway = leeway;
+}
+
+void controller::add_resource_greylist(const account_name &name) {
+   my->conf.resource_greylist.insert(name);
+}
+
+void controller::remove_resource_greylist(const account_name &name) {
+   my->conf.resource_greylist.erase(name);
+}
+
+bool controller::is_resource_greylisted(const account_name &name) const {
+   return my->conf.resource_greylist.find(name) !=  my->conf.resource_greylist.end();
+}
+
+const flat_set<account_name> &controller::get_resource_greylist() const {
+   return  my->conf.resource_greylist;
+}
 
 } } /// besio::chain

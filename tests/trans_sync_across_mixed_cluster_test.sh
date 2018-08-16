@@ -157,13 +157,13 @@ PASSWORD_INITA="$(echo "$PASSWORD_INITA" | awk '/PW/ {print $1}')"
 # remove leading/trailing quotes
 PASSWORD_INITA=${PASSWORD_INITA#\"}
 PASSWORD_INITA=${PASSWORD_INITA%\"}
-programs/clbes/clbes wallet import --name inita $INITA_PRV_KEY
+programs/clbes/clbes wallet import --name inita --private-key $INITA_PRV_KEY
 verifyErrorCode "clbes wallet import"
-programs/clbes/clbes wallet import --name inita $PRV_KEY1
+programs/clbes/clbes wallet import --name inita --private-key $PRV_KEY1
 verifyErrorCode "clbes wallet import"
-programs/clbes/clbes wallet import --name inita $PRV_KEY2
+programs/clbes/clbes wallet import --name inita --private-key $PRV_KEY2
 verifyErrorCode "clbes wallet import"
-programs/clbes/clbes wallet import --name inita $PRV_KEY3
+programs/clbes/clbes wallet import --name inita --private-key $PRV_KEY3
 verifyErrorCode "clbes wallet import"
 
 #

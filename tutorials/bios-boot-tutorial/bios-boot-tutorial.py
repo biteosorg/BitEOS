@@ -77,7 +77,7 @@ def startWallet():
     run(args.clbes + 'wallet create')
 
 def importKeys():
-    run(args.clbes + 'wallet import ' + args.private_key)
+    run(args.clbes + 'wallet import --private-key ' + args.private_key)
     keys = {}
     for a in accounts:
         key = a['pvt']
@@ -85,13 +85,13 @@ def importKeys():
             if len(keys) >= args.max_user_keys:
                 break
             keys[key] = True
-            run(args.clbes + 'wallet import ' + key)
+            run(args.clbes + 'wallet import --private-key ' + key)
     for i in range(firstProducer, firstProducer + numProducers):
         a = accounts[i]
         key = a['pvt']
         if not key in keys:
             keys[key] = True
-            run(args.clbes + 'wallet import ' + key)
+            run(args.clbes + 'wallet import --private-key ' + key)
 
 def startNode(nodeIndex, account):
     dir = args.nodes_dir + ('%02d-' % nodeIndex) + account['name'] + '/'
@@ -104,7 +104,7 @@ def startNode(nodeIndex, account):
     )
     cmd = (
         args.nodbes +
-        '    --max-irreversible-block-age 9999999'
+        '    --max-irreversible-block-age -1'
         '    --contracts-console'
         '    --genesis-json ' + os.path.abspath(args.genesis) +
         '    --blocks-dir ' + os.path.abspath(dir) + '/blocks'
@@ -198,13 +198,6 @@ def claimRewards():
         if row['unpaid_blocks'] and not row['last_claim_time']:
             times.append(getJsonOutput(args.clbes + 'system claimrewards -j ' + row['owner'])['processed']['elapsed'])
     print('Elapsed time for claimrewards:', times)
-
-def vote(b, e):
-    for i in range(b, e):
-        voter = accounts[i]['name']
-        prods = random.sample(range(firstProducer, firstProducer + numProducers), args.num_producers_vote)
-        prods = ' '.join(map(lambda x: accounts[x]['name'], prods))
-        retry(args.clbes + 'system voteproducer prods ' + voter + ' ' + prods)
 
 def proxyVotes(b, e):
     vote(firstProducer, firstProducer + 1)

@@ -9,3 +9,4 @@
 #include <besiolib/multi_index.hpp>
 #include <besiolib/dispatcher.hpp>
 #include <besiolib/contract.hpp>
+#include <besiolib/globalconfig.hpp>

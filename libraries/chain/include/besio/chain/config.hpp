@@ -5,7 +5,6 @@
 #pragma once
 #include <besio/chain/wasm_interface.hpp>
 #include <fc/time.hpp>
-#include <besio/chain/chain_build_config.hpp>
 
 #pragma GCC diagnostic ignored "-Wunused-variable"
 
@@ -13,16 +12,15 @@ namespace besio { namespace chain { namespace config {
 
 typedef __uint128_t uint128_t;
 
-const static auto block_max_tx_num        = 300;
-
 const static auto default_blocks_dir_name    = "blocks";
 const static auto reversible_blocks_dir_name = "reversible";
 const static auto default_reversible_cache_size = 340*1024*1024ll;/// 1MB * 340 blocks based on 21 producer BFT delay
+const static auto default_reversible_guard_size = 2*1024*1024ll;/// 1MB * 340 blocks based on 21 producer BFT delay
 
 const static auto default_state_dir_name     = "state";
 const static auto forkdb_filename            = "forkdb.dat";
-const static auto default_state_size         = 1*1024*1024*1024ll;
-const static auto default_trx_size           = 100*1024ll;
+const static auto default_state_size            = 1*1024*1024*1024ll;
+const static auto default_state_guard_size      = 128*1024*1024ll;
 
 
 const static uint64_t system_account_name    = N(besio);
@@ -41,7 +39,7 @@ const static uint64_t owner_name  = N(owner);
 const static uint64_t besio_any_name = N(besio.any);
 const static uint64_t besio_code_name = N(besio.code);
 
-const static int      block_interval_ms = 3000;
+const static int      block_interval_ms = 500;
 const static int      block_interval_us = block_interval_ms*1000;
 const static uint64_t block_timestamp_epoch = 946684800000ll; // epoch is year 2000.
 
@@ -70,7 +68,7 @@ const static uint32_t   default_context_free_discount_net_usage_num  = 20; // TO
 const static uint32_t   default_context_free_discount_net_usage_den  = 100;
 const static uint32_t   transaction_id_net_usage                     = 32; // 32 bytes for the size of a transaction id
 
-const static uint32_t   default_max_block_cpu_usage                 = 1000'000; /// max block cpu usage in microseconds
+const static uint32_t   default_max_block_cpu_usage                 = 200'000; /// max block cpu usage in microseconds
 const static uint32_t   default_target_block_cpu_usage_pct          = 10 * percent_1;
 const static uint32_t   default_max_transaction_cpu_usage           = 3*default_max_block_cpu_usage/4; /// max trx cpu usage in microseconds
 const static uint32_t   default_min_transaction_cpu_usage           = 100; /// min trx cpu usage in microseconds (10000 TPS equiv)
@@ -96,12 +94,13 @@ const static uint32_t   setcode_ram_bytes_multiplier       = 10;     ///< multip
 const static uint32_t   hashing_checktime_block_size       = 10*1024;  /// call checktime from hashing intrinsic once per this number of bytes
 
 const static besio::chain::wasm_interface::vm_type default_wasm_runtime = besio::chain::wasm_interface::vm_type::binaryen;
+const static uint32_t   default_abi_serializer_max_time_ms = 15*1000; ///< default deadline for abi serialization methods
 
 /**
  *  The number of sequential blocks produced by a single producer
  */
-const static int producer_repetitions = 1;
-const static int max_producers = CHAIN_NUM_OF_SUPER_NODES;
+const static int producer_repetitions = 12;
+const static int max_producers = 125;
 
 const static size_t maximum_tracked_dpos_confirmations = 1024;     ///<
 static_assert(maximum_tracked_dpos_confirmations >= ((max_producers * 2 / 3) + 1) * producer_repetitions, "Settings never allow for DPOS irreversibility" );

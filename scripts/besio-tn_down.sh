@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # besio-tn_down.sh is used by the besio-tn_bounce.sh and besio-tn_roll.sh scripts.
-# It is intended to terminate specific BitEOS daemon processes.
+# It is intended to terminate specific BES.IO daemon processes.
 #
 
 

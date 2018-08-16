@@ -5,8 +5,6 @@
 #include <besio/faucet_testnet_plugin/faucet_testnet_plugin.hpp>
 #include <besio/chain_plugin/chain_plugin.hpp>
 #include <besio/utilities/key_conversion.hpp>
-#include <besio/chain/plugin_interface.hpp>
-#include <besio/chain/txfee_manager.hpp>
 
 #include <fc/variant.hpp>
 #include <fc/io/json.hpp>
@@ -53,7 +51,6 @@ namespace besio {
 static appbase::abstract_plugin& _faucet_testnet_plugin = app().register_plugin<faucet_testnet_plugin>();
 
 using namespace besio::chain;
-using namespace besio::chain::plugin_interface;
 using public_key_type = chain::public_key_type;
 using key_pair = std::pair<std::string, std::string>;
 using results_pair = std::pair<uint32_t,fc::variant>;
@@ -215,9 +212,10 @@ struct faucet_testnet_plugin_impl {
          return std::make_pair(too_many_requests, fc::variant(response));
       }
 
+      chain::chain_id_type chainid;
       auto& plugin = _app.get_plugin<chain_plugin>();
+      plugin.get_chain_id(chainid);
       controller& cc = plugin.chain();
-      auto chainid = cc.get_chain_id();
 
       signed_transaction trx;
       auto memo = fc::variant(fc::time_point::now()).as_string() + " " + fc::variant(fc::time_point::now().time_since_epoch()).as_string();
@@ -232,19 +230,10 @@ struct faucet_testnet_plugin_impl {
 
       trx.expiration = cc.head_block_time() + fc::seconds(30);
       trx.set_reference_block(cc.head_block_id());
-
-      auto txm = txfee_manager();
-      trx.fee = txm.get_required_fee((transaction)trx);
-
       trx.sign(_create_account_private_key, chainid);
 
-      auto packed_trx = packed_transaction(trx);
-      fc::variant pretty_output;
-
       try {
-         app().get_method<incoming::methods::transaction_async>()(std::make_shared<packed_transaction>(packed_trx), true, [](const auto&){});
-         auto trx_trace_ptr = cc.push_transaction(std::make_shared<transaction_metadata>(packed_trx), fc::time_point::maximum(), 0);
-         pretty_output = cc.to_variant_with_abi( *trx_trace_ptr );;
+         cc.push_transaction( std::make_shared<transaction_metadata>(trx) );
       } catch (const account_name_exists_exception& ) {
          // another transaction ended up adding the account, so look for alternates
          return find_alternates(new_account_name);
@@ -254,7 +243,7 @@ struct faucet_testnet_plugin_impl {
       _timer.expires_from_now(boost::posix_time::microseconds(_create_interval_msec * 1000));
       _timer.async_wait(boost::bind(&faucet_testnet_plugin_impl::timer_fired, this));
 
-      return std::make_pair(account_created, fc::variant(pretty_output));
+      return std::make_pair(account_created, fc::variant(besio::detail::faucet_testnet_empty()));
    }
 
    results_pair create_faucet_account(const std::string& body) {
@@ -310,14 +299,16 @@ void faucet_testnet_plugin::set_program_options(options_description&, options_de
 }
 
 void faucet_testnet_plugin::plugin_initialize(const variables_map& options) {
-   my->_create_interval_msec = options.at("faucet-create-interval-ms").as<uint32_t>();
-   my->_create_account_name = options.at("faucet-name").as<std::string>();
+   try {
+      my->_create_interval_msec = options.at( "faucet-create-interval-ms" ).as<uint32_t>();
+      my->_create_account_name = options.at( "faucet-name" ).as<std::string>();
 
-   auto faucet_key_pair = fc::json::from_string(options.at("faucet-private-key").as<std::string>()).as<key_pair>();
-   my->_create_account_public_key = public_key_type(faucet_key_pair.first);
-   ilog("Public Key: ${public}", ("public", my->_create_account_public_key));
-   fc::crypto::private_key private_key(faucet_key_pair.second);
-   my->_create_account_private_key = std::move(private_key);
+      auto faucet_key_pair = fc::json::from_string( options.at( "faucet-private-key" ).as<std::string>()).as<key_pair>();
+      my->_create_account_public_key = public_key_type( faucet_key_pair.first );
+      ilog( "Public Key: ${public}", ("public", my->_create_account_public_key));
+      fc::crypto::private_key private_key( faucet_key_pair.second );
+      my->_create_account_private_key = std::move( private_key );
+   } FC_LOG_AND_RETHROW()
 }
 
 void faucet_testnet_plugin::plugin_startup() {

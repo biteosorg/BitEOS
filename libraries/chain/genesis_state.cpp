@@ -11,8 +11,8 @@
 namespace besio { namespace chain {
 
 genesis_state::genesis_state() {
-   initial_timestamp = fc::time_point::from_iso_string( "2018-05-28T12:00:00" );
-   initial_key = fc::variant("BES1111111111111111111111111111111114T1Anm").as<public_key_type>();
+   initial_timestamp = fc::time_point::from_iso_string( "2018-06-01T12:00:00" );
+   initial_key = fc::variant(besio_root_key).as<public_key_type>();
 }
 
 chain::chain_id_type genesis_state::compute_chain_id() const {

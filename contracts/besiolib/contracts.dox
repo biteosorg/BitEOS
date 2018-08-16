@@ -1,17 +1,17 @@
 /**
   @defgroup contractdev Smart Contract API Reference
-  @brief Introduction to writing contracts for BitEOS
+  @brief Introduction to writing contracts for BES.IO
 
   @section background Background 
 
-  BitEOS contracts (aka applications) are deployed to a blockchain as pre-compiled Web Assembly (aka WASM). WASM is compiled
+  BES.IO contracts (aka applications) are deployed to a blockchain as pre-compiled Web Assembly (aka WASM). WASM is compiled
   from C/C++ using LLVM and clang, which means that you will require knowledge of C/C++ in order to develop your blockchain
-  applications.  While it is possible to develop in C, we strongly recommend that all developers use the BitEOS C++ API which
+  applications.  While it is possible to develop in C, we strongly recommend that all developers use the BES.IO C++ API which
   provides much stronger type safety and is generally easier to read.
 
   @section programstructure Application Structure
 
-  BitEOS applications are designed around event (aka action) handlers that respond to user actions. For example,
+  BES.IO applications are designed around event (aka action) handlers that respond to user actions. For example,
   a user might transfer tokens to another user. This event can be processed and potentially rejected by the sender,
   the receiver, and the currency application itself.
 
@@ -21,7 +21,7 @@
 
   @subsection programentry Entry Points
 
-  BitEOS applications have a `apply` which is like `main` in traditional applications:
+  BES.IO applications have a `apply` which is like `main` in traditional applications:
 
   ```
   extern "C" {

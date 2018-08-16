@@ -1,0 +1,7 @@
+/** @file 
+ *    @copyright defined in bes/LICENSE.txt 
+ *
+ * \warning This file is machine generated. DO NOT EDIT.  See globalconfig.hpp.in for changes.
+ */
+
+#define SUPER_NODES_NUM 53
