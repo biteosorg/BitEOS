@@ -4,7 +4,7 @@ Welcome to the BES.IO Documentation
 @note This documentation is in progress and subject to change due to rapid development. Please report inaccuracies identified to the [BES.IO Developer Telegram Group](https://t.me/joinchat/EaEnSUPktgfoI-XPfMYtcQ)
 
 ## BES.IO
- - [Additional resources - Github Readme](https://github.com/bitbesorg/BitBES#readme)
+ - [Additional resources - Github Readme](https://github.com/biteosorg/BitEOS#readme)
 
 ## Smart Contract Developers
 - @ref besiorpc

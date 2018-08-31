@@ -64,7 +64,7 @@ cacmd () {
 sleep 2
 ecmd get info
 
-wcmd create -n ignition
+wcmd create --to-console -n ignition
 
 # Manual deployers, add a line below this block that looks like:
 #    wcmd import -n ignition --private-key $PRODKEY[0]
@@ -75,10 +75,10 @@ wcmd create -n ignition
 # ------ DO NOT ALTER THE NEXT LINE -------
 ###INSERT prodkeys
 
-ecmd set contract besio contracts/besio.bios contracts/besio.bios/besio.bios.wast contracts/besio.bios/besio.bios.abi
+ecmd set contract besio contracts/besio.bios besio.bios.wasm besio.bios.abi
 
 # Create required system accounts
-ecmd create key
+ecmd create key --to-console
 pubsyskey=`grep "^Public key:" $logfile | tail -1 | sed "s/^Public key://"`
 prisyskey=`grep "^Private key:" $logfile | tail -1 | sed "s/^Private key://"`
 echo besio.* keys: $prisyskey $pubsyskey >> $logfile
@@ -94,9 +94,9 @@ ecmd create account besio besio.token $pubsyskey $pubsyskey
 ecmd create account besio besio.vpay $pubsyskey $pubsyskey
 ecmd create account besio besio.sudo $pubsyskey $pubsyskey
 
-ecmd set contract besio.token contracts/besio.token contracts/besio.token/besio.token.wast contracts/besio.token/besio.token.abi
-ecmd set contract besio.msig contracts/besio.msig contracts/besio.msig/besio.msig.wast contracts/besio.msig/besio.msig.abi
-ecmd set contract besio.sudo contracts/besio.sudo contracts/besio.sudo/besio.sudo.wast contracts/besio.sudo/besio.sudo.abi
+ecmd set contract besio.token contracts/besio.token besio.token.wasm besio.token.abi
+ecmd set contract besio.msig contracts/besio.msig besio.msig.wasm besio.msig.abi
+ecmd set contract besio.sudo contracts/besio.sudo besio.sudo.wasm besio.sudo.abi
 
 echo ===== Start: $step ============ >> $logfile
 echo executing: clbes --wallet-url $wdurl --url http://$bioshost:$biosport push action besio.token create '[ "besio", "10000000000.0000 SYS" ]' -p besio.token | tee -a $logfile
@@ -107,7 +107,7 @@ programs/clbes/clbes --wallet-url $wdurl --url http://$bioshost:$biosport push a
 echo ==== End: $step ============== >> $logfile
 step=$(($step + 1))
 
-ecmd set contract besio contracts/besio.system contracts/besio.system/besio.system.wast contracts/besio.system/besio.system.abi
+ecmd set contract besio contracts/besio.system besio.system.wasm besio.system.abi
 
 # Manual deployers, add a series of lines below this block that looks like:
 #    cacmd $PRODNAME[0] $OWNERKEY[0] $ACTIVEKEY[0]

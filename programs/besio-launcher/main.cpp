@@ -1652,8 +1652,8 @@ launcher_def::bounce (const string& node_numbers) {
       string node_num = node.name.substr( node.name.length() - 2 );
       string cmd = "cd " + host.besio_home + "; "
                  + "export BESIO_HOME=" + host.besio_home + string("; ")
-                 + "export BESIO_TN_NODE=" + node_num + "; "
-                 + "./scripts/besio-tn_bounce.sh";
+                 + "export BESIO_NODE=" + node_num + "; "
+                 + "./scripts/besio-tn_bounce.sh " + besd_extra_args;
       cout << "Bouncing " << node.name << endl;
       if (!do_ssh(cmd, host.host_name)) {
          cerr << "Unable to bounce " << node.name << endl;
@@ -1671,7 +1671,7 @@ launcher_def::down (const string& node_numbers) {
       string node_num = node.name.substr( node.name.length() - 2 );
       string cmd = "cd " + host.besio_home + "; "
                  + "export BESIO_HOME=" + host.besio_home + "; "
-                 + "export BESIO_TN_NODE=" + node_num + "; "
+                 + "export BESIO_NODE=" + node_num + "; "
          + "export BESIO_TN_RESTART_CONFIG_DIR=" + node.config_dir_name + "; "
                  + "./scripts/besio-tn_down.sh";
       cout << "Taking down " << node.name << endl;

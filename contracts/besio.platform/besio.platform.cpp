@@ -16,7 +16,6 @@ namespace besioplatform {
     _global(_self,_self),
     _rammarket(_self,_self)
    {
-      //print( "construct platform\n" );
       _gstate = _global.exists() ? _global.get() : get_default_parameters();
 
       auto itr = _rammarket.find(S(4,RAMCORE));
@@ -34,7 +33,6 @@ namespace besioplatform {
             });
          }
       } else {
-         //print( "ram market already created" );
       }
    }
 
@@ -46,9 +44,7 @@ namespace besioplatform {
 
 
    platform_contract::~platform_contract() {
-      //print( "destruct platform\n" );
       _global.set( _gstate, _self );
-      //besio_exit(0);
    }
 
    void platform_contract::setram( uint64_t max_ram_size ) {
@@ -190,7 +186,7 @@ BESIO_ABI( besioplatform::platform_contract,
      // besio.platform.cpp
      (setram)(setparams)(setpriv)(rmvproducer)(bidname)
      // delegate_bandwidth.cpp
-     (buyrambytes)(buyram)(sellram)(delegatebw)(undelegatebw)(refund)(upramuseage)
+     (buyrambytes)(buyram)(sellram)(delegatebw)(undelegatebw)(refund)(onramusage)
      // voting.cpp
      (regproducer)(unregprod)(voteproducer)
      // producer_pay.cpp

@@ -24,11 +24,11 @@
 	printf "\\tDisk space total: %sG\\n" "${DISK_TOTAL%.*}"
 	printf "\\tDisk space available: %sG\\n" "${DISK_AVAIL%.*}"
 
-	#if [ "${MEM_MEG}" -lt 7000 ]; then
-	#	printf "\\tYour system must have 7 or more Gigabytes of physical memory installed.\\n"
-	#	printf "\\tExiting now.\\n"
-	#	exit 1
-	#fi
+	if [ "${MEM_MEG}" -lt 7000 ]; then
+		printf "\\tYour system must have 7 or more Gigabytes of physical memory installed.\\n"
+		printf "\\tExiting now.\\n"
+		exit 1
+	fi
 
 	case "${OS_NAME}" in
 		"Linux Mint")
@@ -178,7 +178,7 @@
 			printf "\\n\\tExiting now.\\n\\n"
 			exit 1
 		fi
-		if ! ./b2 install
+		if ! ./b2 -j"${CPU_CORE}" install
 		then
 			printf "\\n\\tInstallation of boost libraries failed. 1\\n"
 			printf "\\n\\tExiting now.\\n\\n"

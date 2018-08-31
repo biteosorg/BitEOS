@@ -1,13 +1,14 @@
 #! /bin/bash
 
 binaries=(clbes
-          nodbes
-          besio-kbesd
           besio-abigen
-          besio-applesdemo
           besio-launcher
           besio-s2wasm
-          besio-wast2wasm)
+          besio-wast2wasm
+          besiocpp
+          kbesd
+          nodbes
+          besio-applesdemo)
 
 if [ -d "/usr/local/besio" ]; then
    printf "\tDo you wish to remove this install? (requires sudo)\n"

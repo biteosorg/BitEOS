@@ -1,7 +1,7 @@
 #!/bin/bash
 ##########################################################################
 # This is the BESIO automated install script for Linux and Mac OS.
-# This file was downloaded from https://github.com/bitbesorg/BitBES
+# This file was downloaded from https://github.com/biteosorg/BitEOS
 #
 # Copyright (c) 2017, Respective Authors all rights reserved.
 #
@@ -27,7 +27,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 #
-# https://github.com/bitbesorg/BitBES/blob/master/LICENSE
+# https://github.com/biteosorg/BitEOS/blob/master/LICENSE
 ##########################################################################
 
    SOURCE_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -114,8 +114,8 @@
 
    if [ ! -d "${SOURCE_DIR}/.git" ]; then
       printf "\\n\\tThis build script only works with sources cloned from git\\n"
-      printf "\\tPlease clone a new bes directory with 'git clone https://github.com/bitbesorg/BitBES --recursive'\\n"
-      printf "\\tSee the wiki for instructions: https://github.com/bitbesorg/BitBES/wiki\\n"
+      printf "\\tPlease clone a new bes directory with 'git clone https://github.com/biteosorg/BitEOS --recursive'\\n"
+      printf "\\tSee the wiki for instructions: https://github.com/biteosorg/BitEOS/wiki\\n"
       exit 1
    fi
 
@@ -293,8 +293,8 @@
    print_instructions
 
    printf "\\tFor more information:\\n"
-   printf "\\tBESIO website: https://bes.io\\n"
+   printf "\\tBESIO website: http://biteos.org\\n"
    printf "\\tBESIO Telegram channel @ https://t.me/BESProject\\n"
-   printf "\\tBESIO resources: https://bes.io/resources/\\n"
+   printf "\\tBESIO resources: http://biteos.org/resources/\\n"
    printf "\\tBESIO Stack Exchange: https://besio.stackexchange.com\\n"
-   printf "\\tBESIO wiki: https://github.com/bitbesorg/BitBES/wiki\\n\\n\\n"
+   printf "\\tBESIO wiki: https://github.com/biteosorg/BitEOS/wiki\\n\\n\\n"

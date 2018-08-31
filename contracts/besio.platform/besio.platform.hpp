@@ -136,14 +136,14 @@ namespace besioplatform {
    //   static constexpr uint32_t     max_inflation_rate = 5;  // 5% annual inflation
    static constexpr uint32_t     seconds_per_day = 24 * 3600;
    static constexpr uint64_t     platform_token_symbol = CORE_SYMBOL;
-   static constexpr uint64_t     min_commission_adjustment_period = 20*1000000ll;    // 20S
-   static constexpr uint64_t     distribute_rewards_preiod = 10*1000000ll;           // 10S
-   static constexpr uint64_t     claim_rewards_preiod  = 10*1000000ll;               // 10S
+   static constexpr uint64_t     min_commission_adjustment_period = 3600*24*7*1000000ll;    // 7days
+   static constexpr uint64_t     distribute_rewards_preiod = 3600*24*3*1000000ll;           // 3days
+   static constexpr uint64_t     claim_rewards_preiod  = 3600*24*7*1000000ll;               // 7days
    static constexpr uint64_t     voteage_basis         = claim_rewards_preiod / 10;  // claim rewards preiod 's one fifth
    static constexpr double       max_commission_adjustment_rate = 0.0005;            // 
    
-   static constexpr uint64_t     ram_trade_punitive_fee_preiod =  20*1000000ll;      // 20S
-   static constexpr uint64_t     ram_trade_punitive_fee_warning_period = 3;          // 3 period's,60s
+   static constexpr uint64_t     ram_trade_punitive_fee_preiod =  3600*24*1000000ll;      // 1day
+   static constexpr uint64_t     ram_trade_punitive_fee_warning_period = 7;          // 7 period's,7days
    static constexpr double       ram_punitive_unuse_rate = 0.5;                      // 50%
    static constexpr double       ram_trade_basis_fee_rate = 0.005;                   // 0.5%
    static constexpr double       ram_trade_max_fee_rate = 0.5;                       // 50%
@@ -238,7 +238,7 @@ namespace besioplatform {
 
          void bidname( account_name bidder, account_name newname, asset bid );
 
-         void upramuseage(account_name name);
+         void onramusage(account_name name);
       private:
          void update_elected_producers( block_timestamp timestamp );
 

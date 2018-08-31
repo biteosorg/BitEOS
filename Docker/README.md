@@ -15,15 +15,15 @@ Simple and fast setup of BES.IO on Docker is also available.
 ## Build bes image
 
 ```bash
-git clone https://github.com/BES-Mainnet/bes.git --recursive  --depth 1
+git clone https://github.com/biteosorg/BitEOS.git --recursive  --depth 1
 cd bes/Docker
 docker build . -t besio/bes
 ```
 
-The above will build off the most recent commit to the master branch by default. If you would like to target a specific branch/tag, you may use a build argument. For example, if you wished to generate a docker image based off of the v1.1.4 tag, you could do the following:
+The above will build off the most recent commit to the master branch by default. If you would like to target a specific branch/tag, you may use a build argument. For example, if you wished to generate a docker image based off of the v1.2.3 tag, you could do the following:
 
 ```bash
-docker build -t besio/bes:v1.1.4 --build-arg branch=v1.1.4 .
+docker build -t besio/bes:v1.2.3 --build-arg branch=v1.2.3 .
 ```
 
 By default, the symbol in besio.system is set to SYS. You can override this using the symbol argument while building the docker image.

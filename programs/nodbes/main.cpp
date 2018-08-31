@@ -102,7 +102,7 @@ int main(int argc, char** argv)
       if(!app().initialize<chain_plugin, http_plugin, net_plugin, producer_plugin>(argc, argv))
          return INITIALIZE_FAIL;
       initialize_logging();
-      ilog("nodbes version ${ver}", ("ver", besio::utilities::common::itoh(static_cast<uint32_t>(app().version()))));
+      ilog("nodbes version ${ver}", ("ver", app().version_string()));
       ilog("besio root is ${root}", ("root", root.string()));
       app().startup();
       app().exec();

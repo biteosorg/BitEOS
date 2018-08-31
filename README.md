@@ -36,7 +36,7 @@ BESIO currently supports the following operating systems:
 7. MacOS Darwin 10.12 and higher (MacOS 10.13.x recommended)
 
 ## Resources
-1. [Website](https://bes.io)
+1. [Website](http://biteos.org/)
 1. [Blog](https://medium.com/besio)
 1. [Developer Portal](https://developers.bes.io)
 1. [StackExchange for Q&A](https://besio.stackexchange.com/)

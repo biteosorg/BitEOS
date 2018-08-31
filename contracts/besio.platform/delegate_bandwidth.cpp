@@ -91,13 +91,10 @@ namespace besioplatform {
     */
    void platform_contract::buyram( account_name payer, account_name receiver, asset quant )
    {
-      print("------------------------------buyram-----------------------\n");
-
       require_auth( payer );
       besio_assert( quant.amount > 0, "must purchase a positive amount" );
       
       double fee_rate = get_ram_trad_fee_rate( receiver );
-      print("fee_rate = ", fee_rate, "\n");
       int64_t fee = static_cast<int64_t>(quant.amount * fee_rate);
 
       // fee.amount cannot be 0 since that is only possible if quant.amount is 0 which is not allowed by the assert above.
@@ -142,7 +139,10 @@ namespace besioplatform {
       }
       set_resource_limits( res_itr->owner, res_itr->ram_bytes, res_itr->net_weight.amount, res_itr->cpu_weight.amount );
 
-      upramuseage(receiver);
+      if ( payer != receiver ) {
+         onramusage(receiver);
+      }
+      
    }
 
 
@@ -155,10 +155,8 @@ namespace besioplatform {
    void platform_contract::sellram( account_name account, int64_t bytes ) {
       require_auth( account );
 
-      print("------------------------------sellram-----------------------\n");
       double fee_rate = get_ram_trad_fee_rate( account );
-      print("fee_rate = ", fee_rate, "\n");
-
+      
       besio_assert( bytes > 0, "cannot sell negative byte" );
 
       user_resources_table  userres( _self, account );
@@ -200,8 +198,6 @@ namespace besioplatform {
          INLINE_ACTION_SENDER(besio::token, transfer)( N(besio.token), {account,N(active)},
             { account, N(besio.ramfee), asset(fee), std::string("sell ram fee") } );
       }
-      
-      upramuseage(account);
    }
 
    void platform_contract::changebw( account_name from, account_name receiver,
@@ -372,7 +368,6 @@ namespace besioplatform {
                });
          }
          besio_assert( from_voter->staked_balance.amount >= 0 , "stake for voting cannot be negative");
-         print("vetor:", name{from_voter->votername}, " staked balance is ", from_voter->staked_balance.amount, "\n");
       }
       
    }
@@ -419,8 +414,18 @@ namespace besioplatform {
       refunds_tbl.erase( req );
    }
 
-   void platform_contract::upramuseage(account_name owner) {
+   void platform_contract::onramusage(account_name owner) {
+      int64_t ram_usage_bytes = 0;
+      int64_t ram_owner_bytes = 0;
 
+      get_ram_usage(owner, ram_owner_bytes, ram_usage_bytes);
+
+      /** System accounts are not limited by resources */
+      if ( -1 == ram_owner_bytes ) {
+         return;
+      }
+
+      /** user accounts are not limited by resources */
       user_resources_table  userres( _self, owner );
       auto res_itr = userres.find( owner );
       besio_assert( res_itr != userres.end(), "user must first register" );
@@ -435,11 +440,8 @@ namespace besioplatform {
 
       userres.modify( res_itr, owner, [&]( auto& res ) {
           res.ram_trading_fee_rate = res_obj.ram_trading_fee_rate;
-          print("upramuseage---- res.ram_trading_fee_rate =", res.ram_trading_fee_rate,  "\n");
           res.ram_last_warning_time = res_obj.ram_last_warning_time;
-          print("upramuseage---- res.ram_last_warning_time =", res.ram_last_warning_time,  "\n");
           res.ram_info_last_update_time = res_obj.ram_info_last_update_time;
-          print("upramuseage---- res.ram_info_last_update_time =", res.ram_info_last_update_time,  "\n");
       });
    }
 
@@ -448,9 +450,7 @@ namespace besioplatform {
       int64_t ram_own_bytes = 0;
       int64_t ram_usage_bytes = 0;
       int64_t ram_unuse_bytes = 0;
-      print("cal_ram_trad_fee_rate---- account:", name{ resobj.owner }, "\n");
       get_ram_usage(resobj.owner, ram_own_bytes, ram_usage_bytes);
-      print("cal_ram_trad_fee_rate---- get_ram_usage fun load,ram_own_bytes=", ram_own_bytes, " ram_usage_bytes=", ram_usage_bytes,  "\n");
       
       double ram_unuse_rate = 0;
       /** first by ram with inline action */
@@ -465,14 +465,10 @@ namespace besioplatform {
       uint64_t ram_last_warning_time = 0;
       uint64_t ct = current_time();
 
-      print("cal_ram_trad_fee_rate---- ram_unuse_rate=", ram_unuse_rate,  "\n");
-
       if(ram_unuse_rate > ram_punitive_unuse_rate) {
          if( 0 == resobj.ram_last_warning_time ){
             ram_trading_fee_rate = ram_trade_basis_fee_rate;
             ram_last_warning_time = ct;
-            print("cal_ram_trad_fee_rate---- ram_trading_fee_rate=", ram_trading_fee_rate,  "\n");
-            print("cal_ram_trad_fee_rate---- ram_last_warning_time=", ram_last_warning_time,  "\n");
          }else{
             if ( ((ct - resobj.ram_last_warning_time) / ram_trade_punitive_fee_preiod) >= ram_trade_punitive_fee_warning_period ) {
 		       ram_trading_fee_rate = ram_trade_max_fee_rate* exp(-10 / ( ram_unuse_rate*((ct - resobj.ram_last_warning_time) / ram_trade_punitive_fee_preiod) ) );
@@ -482,7 +478,6 @@ namespace besioplatform {
             }else{
                ram_trading_fee_rate = ram_trade_basis_fee_rate;
             }
-            print("cal_ram_trad_fee_rate---- warning ram_trading_fee_rate=", ram_trading_fee_rate,  "\n");
             ram_last_warning_time = resobj.ram_last_warning_time;
          }
       }
@@ -490,19 +485,15 @@ namespace besioplatform {
          ram_trading_fee_rate = ram_trade_basis_fee_rate;
       }
       resobj.ram_trading_fee_rate = static_cast<uint32_t>( ram_trading_fee_rate * 10000 );
-      print("cal_ram_trad_fee_rate---- res.ram_trading_fee_rate =", resobj.ram_trading_fee_rate,  "\n");
       resobj.ram_last_warning_time = ram_last_warning_time;
-      print("cal_ram_trad_fee_rate---- res.ram_last_warning_time =", resobj.ram_last_warning_time,  "\n");
       resobj.ram_info_last_update_time = ct;
-      print("cal_ram_trad_fee_rate---- res.ram_info_last_update_time =", resobj.ram_info_last_update_time,  "\n");
-
+     
       return ram_trading_fee_rate;
    }
 
    double platform_contract::get_ram_trad_fee_rate(account_name account) {
       user_resources_table  userres( _self, account );
-      print("get_ram_trad_fee_rate---- account:", name{ account }, "\n");
-      auto res_itr = userres.find( account );
+     auto res_itr = userres.find( account );
       if ( res_itr == userres.end() ) {
          return ram_trade_basis_fee_rate;
       }
@@ -513,9 +504,7 @@ namespace besioplatform {
          res_obj.ram_last_warning_time = res_itr->ram_last_warning_time;
          res_obj.ram_info_last_update_time = res_itr->ram_info_last_update_time;
 
-         print("get_ram_trad_fee_rate---- upramuseage fun load\n");
          double ram_trade_fee_rate = cal_ram_real_time_trad_fee_rate(res_obj);
-         print("get_ram_trad_fee_rate---- ram_trade_fee_rate", ram_trade_fee_rate, "\n");
          return ram_trade_fee_rate;
       }
    }

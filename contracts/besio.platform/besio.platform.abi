@@ -928,7 +928,7 @@
       ]
     },
     {
-      "name": "upramuseage",
+      "name": "onramusage",
       "base": "",
       "fields": [
         {
@@ -1081,9 +1081,9 @@
       "ricardian_contract": ""
     },
     {
-      "name": "upramuseage",
-      "type": "upramuseage",
-      "ricardian_contract": "# Action - `{{ upramuseage }}`\n\n## Description\n\nThe `{{ upramuseage }}` action update the account ram usage condition.\n\nTHIS IS A USER COMMAND AVAILABLE FOR DIRECT ACCESS BY USERS.\n"
+      "name": "onramusage",
+      "type": "onramusage",
+      "ricardian_contract": "# Action - `{{ onramusage }}`\n\n## Description\n\nThe `{{ onramusage }}` action update the account ram usage condition.\n\nTHIS IS A USER COMMAND AVAILABLE FOR DIRECT ACCESS BY USERS.\n"
     }
   ],
   "tables": [

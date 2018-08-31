@@ -74,7 +74,7 @@ def startWallet():
     run('mkdir -p ' + os.path.abspath(args.wallet_dir))
     background(args.kbesd + ' --unlock-timeout %d --http-server-address 127.0.0.1:6666 --wallet-dir %s' % (unlockTimeout, os.path.abspath(args.wallet_dir)))
     sleep(.4)
-    run(args.clbes + 'wallet create')
+    run(args.clbes + 'wallet create --to-console')
 
 def importKeys():
     run(args.clbes + 'wallet import --private-key ' + args.private_key)
@@ -266,7 +266,7 @@ def msigReplaceSystem():
 def produceNewAccounts():
     with open('newusers', 'w') as f:
         for i in range(120_000, 200_000):
-            x = getOutput(args.clbes + 'create key')
+            x = getOutput(args.clbes + 'create key --to-console')
             r = re.match('Private key: *([^ \n]*)\nPublic key: *([^ \n]*)', x, re.DOTALL | re.MULTILINE)
             name = 'user'
             for j in range(7, -1, -1):
@@ -347,7 +347,7 @@ commands = [
 
 parser.add_argument('--public-key', metavar='', help="BESIO Public Key", default='BES8Znrtgwt8TfpmbVpTKvA2oB8Nqey625CLN8bCN3TEbgx86Dsvr', dest="public_key")
 parser.add_argument('--private-Key', metavar='', help="BESIO Private Key", default='5K463ynhZoCDDa4RDcr63cUwWLTnKqmdcoTKTHBjqoKfv4u5V7p', dest="private_key")
-parser.add_argument('--clbes', metavar='', help="Clbes command", default='../../build/programs/clbes/clbes --wallet-url http://localhost:6666 ')
+parser.add_argument('--clbes', metavar='', help="Clbes command", default='../../build/programs/clbes/clbes --wallet-url http://127.0.0.1:6666 ')
 parser.add_argument('--nodbes', metavar='', help="Path to nodbes binary", default='../../build/programs/nodbes/nodbes')
 parser.add_argument('--kbesd', metavar='', help="Path to kbesd binary", default='../../build/programs/kbesd/kbesd')
 parser.add_argument('--contracts-dir', metavar='', help="Path to contracts directory", default='../../build/contracts/')
@@ -381,7 +381,7 @@ for (flag, command, function, inAll, help) in commands:
         
 args = parser.parse_args()
 
-args.clbes += '--url http://localhost:%d ' % args.http_port
+args.clbes += '--url http://127.0.0.1:%d ' % args.http_port
 
 logFile = open(args.log_path, 'a')
 
